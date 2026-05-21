@@ -1,0 +1,60 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/Azure/azure-dev/main/schemas/v1.0/azure.yaml.json
+
+name: ai-prototype-accelerator
+
+metadata:
+  template: ai-prototype-accelerator@0.0.1
+
+infra:
+  provider: bicep
+  path: infra
+  module: main
+
+services:
+  app:
+    project: .
+    language: py
+    host: containerapp
+    docker:
+      path: Dockerfile
+      remoteBuild: true
+
+hooks:
+  preprovision:
+    posix:
+      shell: sh
+      run: hooks/preprovision.sh
+      interactive: true
+      continueOnError: false
+    windows:
+      shell: pwsh
+      run: hooks/preprovision.ps1
+      interactive: true
+      continueOnError: false
+
+  postprovision:
+    posix:
+      shell: sh
+      run: hooks/postprovision.sh
+      interactive: true
+      continueOnError: false
+    windows:
+      shell: pwsh
+      run: hooks/postprovision.ps1
+      interactive: true
+      continueOnError: false
+
+  postdeploy:
+    posix:
+      shell: sh
+      run: hooks/postdeploy.sh
+      interactive: true
+      continueOnError: false
+    windows:
+      shell: pwsh
+      run: hooks/postdeploy.ps1
+      interactive: true
+      continueOnError: false
+
+pipeline:
+  provider: github
