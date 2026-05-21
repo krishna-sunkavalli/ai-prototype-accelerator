@@ -1,0 +1,29 @@
+# Generated folders — contents are per-customer, only .gitkeep is tracked
+generated/build-state/*
+!generated/build-state/.gitkeep
+generated/prototype/*
+!generated/prototype/agents/
+generated/prototype/agents/*
+!generated/prototype/agents/specialists/
+!generated/prototype/agents/specialists/.gitkeep
+!generated/prototype/agents/knowledge/
+!generated/prototype/agents/knowledge/.gitkeep
+
+# Deployment history — local reference only, not committed
+deploy-history/
+
+# azd
+.azure/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.env
+
+# Temp infra artifacts
+infra-temp/
+
+# Local runtime / debug captures
+app-logs.json
+*.log

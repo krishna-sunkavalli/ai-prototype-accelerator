@@ -1,0 +1,74 @@
+# accelerator/templates/prototype/agents/tools/tool_definitions.yaml
+#
+# Function tool schemas registered with Azure AI Foundry as part of each
+# PromptAgent's definition. The names here MUST match the keys referenced
+# by `tools:` in every agents/<name>/agent.yaml AND the Python callables
+# wired up in agents/tools/.
+#
+# Adding a new tool:
+#   1. Append a new top-level entry below with `name`, `description`, and a
+#      JSON Schema `parameters` object.
+#   2. Implement the matching callable in agents/tools/<name>.py and
+#      register it with the runtime FunctionInvocationLayer.
+#   3. Reference the tool by name in any agent's agent.yaml `tools:` list.
+#
+# register_agents.py reads this file at runtime; no code changes are needed
+# to surface a new tool to a registered agent.
+
+- name: run_sql_query
+  description: >
+    Execute a Cosmos DB SQL query against the prototype data containers. Use
+    this whenever the user asks for live data from the system. Do NOT
+    fabricate query results — always call this tool and use what it returns.
+  strict: false
+  parameters:
+    type: object
+    properties:
+      query:
+        type: string
+        description: >
+          Cosmos SQL. May use the container name or alias 'c' in the FROM
+          clause (e.g. "SELECT * FROM service_work_orders WHERE c.status = 'open'").
+      params:
+        type: array
+        description: 'Optional list of named parameters: [{"name": "@x", "value": ...}]'
+        items:
+          type: object
+          properties:
+            name: { type: string }
+            value: {}
+          required: [name, value]
+      container:
+        type: string
+        description: Optional container name override. Inferred from FROM clause if omitted.
+    required: [query]
+
+- name: search_knowledge_base
+  description: >
+    Search the operational knowledge base (policies, SOPs, customer
+    agreements) indexed in Azure AI Search. Use for narrative / policy
+    lookups, not for structured data — use run_sql_query for live records.
+  strict: false
+  parameters:
+    type: object
+    properties:
+      query:
+        type: string
+        description: Natural-language search query.
+    required: [query]
+
+- name: call_mock_api
+  description: >
+    Invoke a mock backend endpoint that simulates an external system (e.g.
+    dispatch board, technician roster). Returns a JSON object.
+  strict: false
+  parameters:
+    type: object
+    properties:
+      endpoint:
+        type: string
+        description: "Endpoint path, e.g. '/technicians/available'."
+      params:
+        type: object
+        description: Optional query parameters as a JSON object.
+    required: [endpoint]

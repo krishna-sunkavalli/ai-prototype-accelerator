@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Contract tests
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12"]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install test dependencies
+        run: python -m pip install --upgrade pip pyyaml
+
+      - name: Run accelerator contract tests
+        run: python -m unittest discover -s accelerator/tests -v
+
+      - name: Validate prototype scaffold compiles
+        run: |
+          python accelerator/generators/materialize-prototype.py
+          python -c "import py_compile, pathlib, sys; \
+            files = list(pathlib.Path('generated/prototype').rglob('*.py')); \
+            [py_compile.compile(str(f), doraise=True) for f in files]; \
+            print(f'Compiled {len(files)} files OK')"

@@ -1,0 +1,34 @@
+# ai-prototype-accelerator — Python Dependencies
+# Static scaffold file — do NOT modify when processing spec.yaml.
+
+# Web framework
+fastapi==0.115.0
+uvicorn[standard]==0.30.0
+websockets==12.0
+
+# Azure SDKs
+azure-identity==1.17.0
+azure-search-documents==11.6.0
+azure-storage-blob==12.20.0
+# Microsoft Agent Framework v1.3.0 — Responses-protocol (non-classic) Foundry agents
+agent-framework-core>=1.3.0
+agent-framework-foundry>=1.3.0
+# Azure AI Projects v2.x — used by both MAF runtime AND agents/register_agents.py
+# (registration calls AIProjectClient.agents.create_version() with PromptAgentDefinition)
+azure-ai-projects>=2.1.0
+openai>=1.75.0                   # Responses API client (pulled in by azure-ai-projects)
+aiohttp>=3.9.0                   # async transport for azure-core (required by MAF async AIProjectClient)
+
+# Database — Cosmos DB NoSQL
+azure-cosmos>=4.7.0
+
+# Utilities
+pydantic==2.7.0
+python-dotenv==1.0.1
+httpx==0.27.0
+pyyaml==6.0.1
+
+# Observability
+opentelemetry-sdk>=1.39.0
+opentelemetry-instrumentation-fastapi>=0.50b0
+azure-monitor-opentelemetry>=1.6.0

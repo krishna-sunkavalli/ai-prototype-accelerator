@@ -1,0 +1,176 @@
+customer:
+  name: Consumers Energy
+  slug: consumers
+  industry: Utilities - Electric and Natural Gas
+
+branding:
+  agent_name: ConsumersOutagePilot
+  primary_color: "#005DAA"
+  accent_color: "#7AB800"
+  font_family: "Segoe UI, system-ui, sans-serif"
+  logo_url: ""
+  welcome_message: "Hi, I'm Outage Pilot. Tell me your address or account and I'll share your outage status, estimated restoration time, and what to do next."
+
+use_case:
+  title: Outage Status and Restoration Assistant
+  description: >
+    A residential customer-facing chat assistant for Consumers Energy customers experiencing
+    a power outage. Customers ask for current outage status at their address, estimated
+    restoration times, safety steps around downed lines and food spoilage, and how to report
+    new damage. The assistant grounds answers in outage events, service points, and crew
+    assignments, and routes life-safety issues (downed wires, gas smell) to 911 or the
+    Consumers Energy emergency line.
+
+deployment:
+  environment_name: consumers-prototype
+  resource_group: rg-consumers-prototype
+  azure_region: southcentralus
+  database_name: consumers-db
+
+agents:
+  - name: OutageStatusAgent
+    role: Looks up current outage status and estimated restoration time for a given service address or account.
+    model: gpt-4o
+    routing_keywords: [outage, power, lights, eta, restoration, status, blackout, when]
+    tools: [search_tool, sql_tool]
+    skills:
+      - name: lookup_outage_by_address
+        description: Find the active outage event covering a service address and return crew status and ETA.
+      - name: nearby_outage_summary
+        description: Summarize how widespread the outage is in the customer's area.
+    system_prompt_focus: >
+      Answer outage status questions for residential customers. Use service_points and
+      outage_events to match the customer to an active event, and cite the customer
+      communications guide. If the customer reports a downed wire or gas smell, tell them
+      to call 911 and the Consumers Energy emergency line immediately and stop.
+    response_format: [bulleted, cite_sources]
+
+  - name: SafetyAndReportingAgent
+    role: Guides customers through safety steps during an outage and how to report new damage or hazards.
+    model: gpt-4o
+    routing_keywords: [safety, downed, wire, tree, hazard, report, gas, smell, generator]
+    tools: [search_tool]
+    skills:
+      - name: outage_safety_checklist
+        description: Walk the customer through outage safety steps (generators, food, medical devices).
+      - name: report_damage_flow
+        description: Coach the customer on what details to include when reporting damage or a hazard.
+    system_prompt_focus: >
+      Help customers stay safe during outages and report damage clearly. Cite the safety
+      guide. For any life-safety situation (downed line, gas smell, medical device on power),
+      direct the customer to call 911 and the Consumers Energy emergency line first.
+    response_format: [bulleted, cite_sources]
+
+  - name: RestorationExpectationsAgent
+    role: Sets expectations for how restoration works, why some neighbors get power back first, and what to do after restoration.
+    model: gpt-4o-mini
+    routing_keywords: [neighbor, why, priority, restore, after, food, fridge, reset, breaker]
+    tools: [search_tool, sql_tool]
+    skills:
+      - name: explain_restoration_priority
+        description: Explain Consumers Energy's restoration priority (substations, critical facilities, then circuits).
+      - name: post_restoration_checklist
+        description: Produce a checklist for after the power comes back (breakers, food safety, appliances).
+    system_prompt_focus: >
+      Set realistic expectations about how power restoration works and what to do once
+      power is back. Cite the restoration overview document. Avoid promising specific times
+      beyond what outage_events.eta reports.
+    response_format: [bulleted, cite_sources]
+
+tables:
+  - name: service_points
+    partition_key: /county
+    seed_count: 400
+    seed_scenario: Residential service points across Michigan counties with circuit and substation references.
+    description: Residential electric service points used to match a customer address to an outage event.
+    columns:
+      - { name: id, type: string }
+      - { name: county, type: string }
+      - { name: serviceAddress, type: string }
+      - { name: city, type: string }
+      - { name: zipCode, type: string }
+      - { name: circuitId, type: string }
+      - { name: substationId, type: string }
+      - { name: meterId, type: string }
+
+  - name: outage_events
+    partition_key: /county
+    seed_count: 250
+    seed_scenario: Active and recently restored outage events spanning storm-driven and equipment-failure causes across Michigan.
+    description: Outage events with cause, affected circuits, ETA, and crew status.
+    columns:
+      - { name: id, type: string }
+      - { name: county, type: string }
+      - { name: circuitId, type: string }
+      - { name: cause, type: string }
+      - { name: startTime, type: date }
+      - { name: eta, type: date }
+      - { name: customersAffected, type: number }
+      - { name: status, type: string }
+
+  - name: crew_assignments
+    partition_key: /eventId
+    seed_count: 200
+    seed_scenario: Field crew assignments mapped to outage events with crew type and dispatch timestamps.
+    description: Crew dispatch records tied to outage events to power realistic restoration narrative.
+    columns:
+      - { name: id, type: string }
+      - { name: eventId, type: string }
+      - { name: crewType, type: string }
+      - { name: crewLead, type: string }
+      - { name: dispatchedAt, type: date }
+      - { name: onSiteAt, type: date }
+      - { name: notes, type: string }
+
+documents:
+  - title: Outage Safety Guide for Customers
+    description: Plain-language safety steps for outages, downed lines, generators, and medical equipment.
+    key_topics: [downed wires, generator safety, food safety, medical devices, gas smell, 911]
+  - title: How Power Restoration Works at Consumers Energy
+    description: Overview of restoration priorities (substations, critical facilities, then neighborhood circuits) and why neighbors are restored at different times.
+    key_topics: [restoration priority, substations, critical facilities, circuits, mutual aid]
+  - title: Reporting an Outage or Hazard
+    description: How to report an outage or hazard, what details to provide, and what to expect after reporting.
+    key_topics: [reporting, hazard, downed tree, app, phone, expectations]
+  - title: After the Power Comes Back
+    description: Post-restoration checklist covering breakers, food spoilage, appliances, and what to do if power is still out.
+    key_topics: [breakers, food safety, appliances, partial outage, still out]
+
+starter_questions:
+  - Is there a power outage at my address right now?
+  - When will my power be restored?
+  - I see a downed wire near my house - what should I do?
+  - Why does my neighbor have power but I do not?
+  - Is my food in the fridge still safe to eat?
+  - How do I safely use a portable generator?
+
+demo_persona:
+  name: Linda Hoffman
+  role: Residential customer in Kent County, Michigan with two kids and a medically required CPAP machine
+
+foundry_iq:
+  index_name: consumers-knowledge
+  chunking:
+    chunk_size: 1024
+    overlap: 128
+
+model_deployments:
+  - deployment_name: gpt-4o
+    model: gpt-4o
+    version: "2024-11-20"
+    sku: GlobalStandard
+    capacity: 30
+  - deployment_name: gpt-4o-mini
+    model: gpt-4o-mini
+    version: "2024-07-18"
+    sku: GlobalStandard
+    capacity: 30
+  - deployment_name: text-embedding-3-large
+    model: text-embedding-3-large
+    version: "1"
+    sku: Standard
+    capacity: 30
+
+mock_api:
+  enabled: false
+  endpoints: []
