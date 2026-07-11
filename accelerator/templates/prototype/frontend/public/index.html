@@ -475,6 +475,36 @@ body {
   white-space: nowrap;
 }
 
+/* Tool activity — live status lines while a specialist runs its tools */
+.msg-tool-wrap {
+  padding: 2px 28px 2px 68px;
+  animation: msgIn 0.2s ease both;
+}
+
+.msg-tool-text {
+  font-size: 0.7rem;
+  color: var(--gray-400);
+  font-style: italic;
+}
+
+/* Agent attribution — name label above each specialist bubble */
+.msg-col {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  max-width: 66%;
+}
+
+.msg-col .msg-bubble { max-width: 100%; }
+
+.msg-agent-name {
+  font-size: 0.66rem;
+  font-weight: 600;
+  color: var(--gray-400);
+  letter-spacing: 0.02em;
+  padding-left: 4px;
+}
+
 /* Typing indicator */
 .typing-wrap {
   padding: 0 28px;
@@ -1040,6 +1070,9 @@ function handleMsg(msg) {
   } else if (t === 'handoff') {
     appendSystemMsg('Routing to ' + (msg.agent || 'specialist') + '...');
 
+  } else if (t === 'tool_activity') {
+    appendToolActivity(msg.label || 'Working...');
+
   } else if (t === 'suggestions') {
     renderSuggestions(msg.questions || []);
     setWaiting(false);
@@ -1091,7 +1124,7 @@ function startAgentBubble(agentName) {
   area.appendChild(typingWrap);
   scrollBottom();
 
-  return { area: area, typingWrap: typingWrap, wrap: null, row: null, bubble: null, init: init, rawText: '', rendered: false };
+  return { area: area, typingWrap: typingWrap, wrap: null, row: null, bubble: null, init: init, agentName: agentName || '', rawText: '', rendered: false };
 }
 
 function appendToken(handle, token) {
@@ -1113,8 +1146,19 @@ function appendToken(handle, token) {
     var bbl = document.createElement('div');
     bbl.className = 'msg-bubble';
 
+    // Name label above the bubble — makes it visible which specialist answered
+    var col = document.createElement('div');
+    col.className = 'msg-col';
+    if (handle.agentName) {
+      var nameEl = document.createElement('div');
+      nameEl.className = 'msg-agent-name';
+      nameEl.textContent = handle.agentName;
+      col.appendChild(nameEl);
+    }
+    col.appendChild(bbl);
+
     row.appendChild(av);
-    row.appendChild(bbl);
+    row.appendChild(col);
     wrap.appendChild(row);
     handle.area.appendChild(wrap);
 
@@ -1243,6 +1287,15 @@ function renderStructuredJSON(obj) {
   }
 
   return container;
+}
+
+function appendToolActivity(label) {
+  var area = document.getElementById('messagesArea');
+  var div = document.createElement('div');
+  div.className = 'msg-tool-wrap';
+  div.innerHTML = '<span class="msg-tool-text">⚙ ' + escHtml(label) + '</span>';
+  area.appendChild(div);
+  scrollBottom();
 }
 
 function appendSystemMsg(text) {

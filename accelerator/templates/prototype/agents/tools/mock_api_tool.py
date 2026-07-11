@@ -11,6 +11,8 @@ import logging
 
 import httpx
 
+from agents.tools import activity
+
 logger = logging.getLogger(__name__)
 
 _BASE_URL = "http://localhost:8000/mock-api"
@@ -48,6 +50,7 @@ def call_mock_api(endpoint: str, params: dict = None) -> dict:
         }
 
     url = f"{_BASE_URL}/{endpoint.lstrip('/')}"
+    activity.notify(f"Calling {endpoint.lstrip('/')} API...")
 
     try:
         with httpx.Client(timeout=10.0) as client:

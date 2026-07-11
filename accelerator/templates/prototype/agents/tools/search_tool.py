@@ -17,6 +17,8 @@ from azure.search.documents.models import (
 )
 from azure.identity import DefaultAzureCredential
 
+from agents.tools import activity
+
 logger = logging.getLogger(__name__)
 
 
@@ -25,6 +27,8 @@ def search_knowledge_base(query: str) -> str:
     Hybrid semantic + keyword search against Azure AI Search index.
     Returns formatted context string for agent.
     """
+    preview = query if len(query) <= 60 else query[:57] + "..."
+    activity.notify(f'Searching knowledge base: "{preview}"')
     credential = DefaultAzureCredential(
         managed_identity_client_id=os.environ["AZURE_CLIENT_ID"]
     )
