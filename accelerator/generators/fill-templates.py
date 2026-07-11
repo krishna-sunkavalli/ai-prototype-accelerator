@@ -125,21 +125,21 @@ def escape_bicep_string(value: str) -> str:
 def _build_inline_logo_svg(agent_name: str, primary: str, accent: str) -> str:
     """Return a `data:image/svg+xml,...` URI for a branded badge logo.
 
-    Renders the agent's initials over a primary->accent linear gradient on a
-    rounded square. Used when spec.yaml does not provide branding.logo_url so
-    every prototype ships with a coherent agent mark whose colors match the
-    rest of the theme (buttons, focus rings, agent-bubble accent border).
+    Renders the agent's initials in white over a solid primary-color rounded
+    square with a thin accent bar along the bottom edge. Used when spec.yaml
+    does not provide branding.logo_url so every prototype ships with a
+    coherent agent mark whose colors match the rest of the theme. The colors
+    stay unblended on purpose: gradients between arbitrary customer palettes
+    (e.g. blue->lime) collapse into muddy in-between tones.
     """
     initials = "".join(w[0] for w in agent_name.split() if w)[:2].upper() or "AI"
     # Build an SVG without quotes that need escaping inside a data URI.
     svg = (
         "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 44 44'>"
-        "<defs><linearGradient id='g' x1='0' y1='0' x2='1' y2='1'>"
-        f"<stop offset='0%' stop-color='{primary}'/>"
-        f"<stop offset='100%' stop-color='{accent}'/>"
-        "</linearGradient></defs>"
-        "<rect width='44' height='44' rx='11' fill='url(#g)'/>"
-        f"<text x='22' y='28' text-anchor='middle' font-family='Inter, system-ui, sans-serif' "
+        "<defs><clipPath id='r'><rect width='44' height='44' rx='11'/></clipPath></defs>"
+        f"<rect width='44' height='44' rx='11' fill='{primary}'/>"
+        f"<rect y='40' width='44' height='4' fill='{accent}' clip-path='url(#r)'/>"
+        f"<text x='22' y='27' text-anchor='middle' font-family='Inter, system-ui, sans-serif' "
         f"font-size='16' font-weight='800' fill='#ffffff' letter-spacing='-0.5'>{initials}</text>"
         "</svg>"
     )
