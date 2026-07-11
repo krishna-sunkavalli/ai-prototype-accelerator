@@ -351,6 +351,24 @@ def check_azd_env_matches_manifest(errors: list[str]) -> None:
         )
 
 
+def _contrast_vs_white(hex_color: str) -> float | None:
+    """WCAG contrast ratio of a #RRGGBB color against white, or None if malformed."""
+    if not isinstance(hex_color, str) or not hex_color.startswith("#") or len(hex_color) != 7:
+        return None
+
+    def _channel(c: float) -> float:
+        return c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4
+
+    try:
+        r = int(hex_color[1:3], 16) / 255.0
+        g = int(hex_color[3:5], 16) / 255.0
+        b = int(hex_color[5:7], 16) / 255.0
+    except ValueError:
+        return None
+    lum = 0.2126 * _channel(r) + 0.7152 * _channel(g) + 0.0722 * _channel(b)
+    return 1.05 / (lum + 0.05)  # contrast against white (L=1.0)
+
+
 def check_brand_contrast(errors: list[str]) -> None:
     """Hard-fail when branding.primaryColor has < 4.5:1 contrast against white.
 
@@ -360,6 +378,10 @@ def check_brand_contrast(errors: list[str]) -> None:
     BA agent sometimes picks a brand-accurate-but-too-light color (e.g. a
     customer's official light blue) and we don't want validation noise during
     spec authoring — only at deploy time.
+
+    branding.accentColor gets a soft warning instead: the frontend uses it
+    only decoratively (logo underline, agent-bubble border — never as a text
+    background), so low contrast degrades polish, not readability.
     """
     if not MANIFEST.exists():
         return
@@ -367,22 +389,12 @@ def check_brand_contrast(errors: list[str]) -> None:
         manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
     except json.JSONDecodeError:
         return
-    primary = manifest.get("branding", {}).get("primaryColor", "")
-    if not isinstance(primary, str) or not primary.startswith("#") or len(primary) != 7:
-        return  # schema check already caught malformed colors
+    branding = manifest.get("branding", {})
 
-    def _channel(c: float) -> float:
-        return c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4
-
-    try:
-        r = int(primary[1:3], 16) / 255.0
-        g = int(primary[3:5], 16) / 255.0
-        b = int(primary[5:7], 16) / 255.0
-    except ValueError:
-        return
-    lum = 0.2126 * _channel(r) + 0.7152 * _channel(g) + 0.0722 * _channel(b)
-    ratio = 1.05 / (lum + 0.05)  # contrast against white (L=1.0)
-    if ratio < 4.5:
+    # Malformed colors return None; the schema check already flags those.
+    primary = branding.get("primaryColor", "")
+    ratio = _contrast_vs_white(primary)
+    if ratio is not None and ratio < 4.5:
         _err(
             errors,
             (
@@ -390,6 +402,16 @@ def check_brand_contrast(errors: list[str]) -> None:
                 f"against white — WCAG AA requires 4.5:1 for readable button "
                 f"labels and bubble text. Darken primary_color in spec.yaml."
             ),
+        )
+
+    accent = branding.get("accentColor", "")
+    accent_ratio = _contrast_vs_white(accent)
+    if accent_ratio is not None and accent_ratio < 3.0:
+        print(
+            f"  WARN: branding.accentColor {accent} has {accent_ratio:.2f}:1 "
+            f"contrast against white (< 3:1). Accent is decorative-only, so "
+            f"this does not block deploy, but underlines and borders may look "
+            f"faint on light backgrounds."
         )
 
 

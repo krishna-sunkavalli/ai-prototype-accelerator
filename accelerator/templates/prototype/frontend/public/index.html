@@ -3,8 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Loading...</title>
-<link rel="icon" id="favicon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0%25' stop-color='%236366f1'/%3E%3Cstop offset='100%25' stop-color='%237c3aed'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='32' height='32' rx='8' fill='url(%23g)'/%3E%3Ctext x='16' y='22' text-anchor='middle' font-family='system-ui' font-size='13' font-weight='800' fill='white'%3EAI%3C/text%3E%3C/svg%3E">
+<title></title>
+<link rel="icon" id="favicon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23cbd5e1'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
@@ -13,7 +13,8 @@
 :root {
   --brand:       #4f46e5;
   --brand-hover: #4338ca;
-  --brand-light: #eef2ff;
+  --brand-light: #dcdafa;
+  --brand-text:  #433cc3;
   --brand-muted: rgba(99,102,241,0.08);
   --accent:      #7c3aed;
 
@@ -72,12 +73,14 @@ body {
   gap: 10px;
 }
 
-/* Rounded square logo — like ShiftIQ SQ badge */
+/* Rounded square logo — solid brand color; the accent appears only as a
+   thin underline detail so mixed palettes never blend into a muddy tone. */
 .topbar-logo {
   width: 44px;
   height: 44px;
   border-radius: 11px;
-  background: linear-gradient(135deg, #6366f1, #7c3aed);
+  background: var(--brand);
+  border-bottom: 3px solid var(--accent);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -87,23 +90,34 @@ body {
   letter-spacing: -0.03em;
   flex-shrink: 0;
   overflow: hidden;
-  box-shadow: 0 2px 8px rgba(99,102,241,.3);
+  box-shadow: 0 2px 8px rgba(15,23,42,.18);
 }
 
 .topbar-logo img {
   width: 100%;
   height: 100%;
   object-fit: contain;
+  padding: 2px;
+  background: transparent;
+}
+
+/* Fallback for uploaded logos that need a light backdrop to stay legible
+   against the brand-colored tile. */
+.topbar-logo img.on-tile {
   padding: 6px;
   background: #fff;
 }
 
-/* Generated inline-SVG badges already carry the theme gradient — render */
-/* them edge-to-edge so they read as a coherent agent mark, not as a tiny */
-/* icon on a white tile. */
+/* Generated inline-SVG badges already carry the theme colors (including
+   their own accent bar) — render them edge-to-edge with no extra underline
+   so they read as a coherent agent mark, not as a tiny icon on a tile. */
 .topbar-logo img.generated {
   padding: 0;
   background: transparent;
+}
+
+.topbar-logo:has(img.generated) {
+  border-bottom: none;
 }
 
 .topbar-title {
@@ -179,7 +193,7 @@ body {
   width: 38px;
   height: 38px;
   border-radius: 50%;
-  background: linear-gradient(135deg, #6366f1, #7c3aed);
+  background: var(--brand);
   color: #fff;
   display: flex;
   align-items: center;
@@ -302,7 +316,8 @@ body {
   width: 64px;
   height: 64px;
   border-radius: 16px;
-  background: linear-gradient(135deg, #6366f1, #7c3aed);
+  background: var(--brand);
+  border-bottom: 3px solid var(--accent);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -310,7 +325,7 @@ body {
   font-size: 1.3rem;
   font-weight: 800;
   margin-bottom: 22px;
-  box-shadow: 0 8px 24px rgba(99,102,241,.3);
+  box-shadow: 0 8px 24px rgba(15,23,42,.18);
   overflow: hidden;
   animation: avatarIn 0.45s cubic-bezier(.34,1.56,.64,1) both;
 }
@@ -319,6 +334,11 @@ body {
   width: 100%;
   height: 100%;
   object-fit: contain;
+  padding: 2px;
+  background: transparent;
+}
+
+.welcome-logo img.on-tile {
   padding: 8px;
   background: #fff;
 }
@@ -326,6 +346,10 @@ body {
 .welcome-logo img.generated {
   padding: 0;
   background: transparent;
+}
+
+.welcome-logo:has(img.generated) {
+  border-bottom: none;
 }
 
 @keyframes avatarIn {
@@ -397,7 +421,7 @@ body {
   width: 30px;
   height: 30px;
   border-radius: 8px;
-  background: linear-gradient(135deg, #6366f1, #7c3aed);
+  background: var(--brand);
   color: #fff;
   display: flex;
   align-items: center;
@@ -430,7 +454,7 @@ body {
   color: #fff;
   border-radius: 14px;
   border-bottom-right-radius: 4px;
-  box-shadow: 0 2px 8px rgba(79,70,229,.25);
+  box-shadow: 0 2px 8px rgba(15,23,42,.15);
 }
 
 /* System / handoff */
@@ -533,12 +557,12 @@ body {
 
 .suggestion-chip {
   background: var(--brand-light);
-  border: 1px solid rgba(99,102,241,.18);
+  border: 1px solid var(--brand);
   border-radius: 14px;
   padding: 5px 12px;
   font-size: 0.75rem;
   font-weight: 500;
-  color: var(--brand);
+  color: var(--brand-text);
   cursor: pointer;
   transition: all .15s;
   font-family: inherit;
@@ -615,13 +639,13 @@ body {
 }
 
 .starter-chip {
-  background: #fff;
-  border: 1px solid var(--gray-200);
+  background: var(--brand-light);
+  border: 1px solid var(--brand);
   border-radius: 20px;
   padding: 8px 16px;
   font-size: 0.8rem;
   font-weight: 500;
-  color: var(--gray-700);
+  color: var(--brand-text);
   cursor: pointer;
   transition: all .15s;
   font-family: inherit;
@@ -630,9 +654,9 @@ body {
 }
 
 .starter-chip:hover {
-  border-color: var(--accent);
-  color: var(--brand);
-  background: var(--brand-light);
+  border-color: var(--brand);
+  color: #fff;
+  background: var(--brand);
   transform: translateY(-1px);
   box-shadow: var(--shadow);
 }
@@ -663,7 +687,7 @@ body {
 .msg-input:focus {
   border-color: var(--brand);
   background: #fff;
-  box-shadow: 0 0 0 3px rgba(99,102,241,.1);
+  box-shadow: 0 0 0 3px var(--brand-muted);
 }
 
 .msg-input:disabled { opacity: 0.55; cursor: not-allowed; }
@@ -682,7 +706,7 @@ body {
   justify-content: center;
   flex-shrink: 0;
   transition: all .15s;
-  box-shadow: 0 2px 8px rgba(79,70,229,.3);
+  box-shadow: 0 2px 8px rgba(15,23,42,.18);
 }
 
 .send-btn:hover { background: var(--brand-hover); transform: scale(1.05); }
@@ -716,9 +740,43 @@ body {
 }
 
 .hidden { display: none !important; }
+
+/* ── BOOT VEIL ───────────────────────────────────── */
+/* Covers the page until /config resolves and the customer theme is applied,
+   so the hardcoded fallback palette above never flashes on screen. */
+#bootVeil {
+  position: fixed;
+  inset: 0;
+  background: var(--gray-100);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 500;
+  opacity: 1;
+  transition: opacity .3s ease;
+}
+
+#bootVeil.hide {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.boot-spinner {
+  width: 28px;
+  height: 28px;
+  border: 3px solid var(--gray-200);
+  border-top-color: var(--gray-400);
+  border-radius: 50%;
+  animation: bootSpin .8s linear infinite;
+}
+
+@keyframes bootSpin { to { transform: rotate(360deg); } }
 </style>
 </head>
 <body>
+
+<!-- Boot veil — removed once the customer theme is applied -->
+<div id="bootVeil"><div class="boot-spinner"></div></div>
 
 <!-- Topbar -->
 <div class="topbar">
@@ -830,6 +888,14 @@ async function loadConfig() {
   }
   applyTheme();
   applyContent();
+  hideBootVeil();
+}
+
+function hideBootVeil() {
+  var veil = document.getElementById('bootVeil');
+  if (!veil) return;
+  veil.classList.add('hide');
+  setTimeout(function() { veil.remove(); }, 350);
 }
 
 function applyTheme() {
@@ -838,21 +904,21 @@ function applyTheme() {
   var r = document.documentElement;
   r.style.setProperty('--brand',       primary);
   r.style.setProperty('--brand-hover', darken(primary, 0.12));
-  r.style.setProperty('--brand-light', lighten(primary, 0.9));
+  r.style.setProperty('--brand-light', lighten(primary, 0.8));
+  r.style.setProperty('--brand-text',  darken(primary, 0.15));
   r.style.setProperty('--brand-muted', hexRgba(primary, 0.08));
   r.style.setProperty('--accent',      accent);
   if (config.FONT_FAMILY) document.body.style.fontFamily = config.FONT_FAMILY;
 
-  // Update gradient elements dynamically
-  var grad = 'linear-gradient(135deg,' + primary + ',' + accent + ')';
-  var gels = document.querySelectorAll('.topbar-logo, .welcome-logo, .profile-avatar, .msg-avatar');
-  gels.forEach(function(el) { el.style.background = grad; });
+  // Brand marks stay solid primary (via --brand); accent appears only as
+  // the underline detail on the topbar/welcome logos — never blended in a
+  // gradient, which muddies real customer palettes.
 
-  // Favicon
+  // Favicon — solid primary rounded square with a thin accent bottom bar.
   var fav = document.getElementById('favicon');
   var enc = encodeURIComponent(primary);
   var acc = encodeURIComponent(accent);
-  fav.href = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0%25' stop-color='" + enc + "'/%3E%3Cstop offset='100%25' stop-color='" + acc + "'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='32' height='32' rx='8' fill='url(%23g)'/%3E%3C/svg%3E";
+  fav.href = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cdefs%3E%3CclipPath id='r'%3E%3Crect width='32' height='32' rx='8'/%3E%3C/clipPath%3E%3C/defs%3E%3Crect width='32' height='32' rx='8' fill='" + enc + "'/%3E%3Crect y='28' width='32' height='4' fill='" + acc + "' clip-path='url(%23r)'/%3E%3C/svg%3E";
 
   document.title = (config.AGENT_NAME || 'AI') + ' — ' + (config.CUSTOMER_NAME || 'Prototype');
 }
@@ -863,7 +929,8 @@ function applyContent() {
   var logo     = config.LOGO_URL      || '';
   var initials = agent.split(' ').map(function(w){return w[0]||'';}).join('').toUpperCase().slice(0,2);
   // Generated badges (SVG data URIs from fill-templates.py) render edge-to-edge;
-  // uploaded raster logos sit on a white tile with padding.
+  // uploaded raster logos render transparent on the brand tile (add the
+  // 'on-tile' class for logos that need a white backdrop to stay legible).
   var logoClass = (logo.indexOf('data:image/svg+xml') === 0) ? ' class="generated"' : '';
 
   // Topbar logo
@@ -1042,10 +1109,6 @@ function appendToken(handle, token) {
     var av = document.createElement('div');
     av.className = 'msg-avatar';
     av.textContent = handle.init;
-    // Apply gradient
-    var p = document.documentElement.style.getPropertyValue('--brand') || '#4f46e5';
-    var a = document.documentElement.style.getPropertyValue('--accent') || '#7c3aed';
-    av.style.background = 'linear-gradient(135deg,' + p + ',' + a + ')';
 
     var bbl = document.createElement('div');
     bbl.className = 'msg-bubble';
@@ -1382,6 +1445,9 @@ document.addEventListener('click', function(e) {
 
 /* ── INIT ────────────────────────────────────────── */
 loadConfig().then(function() { connect(); });
+
+// Hard fallback: never leave the veil up if theming stalls unexpectedly.
+setTimeout(hideBootVeil, 4000);
 
 })();
 </script>
