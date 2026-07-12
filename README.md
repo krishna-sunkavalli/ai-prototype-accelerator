@@ -39,7 +39,19 @@ The accelerator uses two Copilot agents that hand off in sequence.
 @devlead build
 ```
 
-`@devlead` reads `spec.yaml` and orchestrates the full build: configures the Bicep/AVM infrastructure, registers Microsoft Foundry PromptAgents, generates backend and frontend code, and produces a deploy-ready prototype. Run `azd up` when it finishes.
+`@devlead` reads `spec.yaml` and orchestrates the full build: configures the Bicep/AVM infrastructure, registers Microsoft Foundry PromptAgents, generates backend and frontend code, and produces a deploy-ready prototype. After deploy it runs an acceptance smoke test (every starter question through the live app) and reports the measured spec-to-deployed build time.
+
+**Step 3 — Iterate at spec speed**
+
+Edit `spec.yaml` and run `@devlead build` again. The build is **incremental**: per-step input fingerprints (see `accelerator/scripts/plan-rebuild.py`) rerun only the steps your edit touches — a branding change rehydrates config without regenerating seed data, agents, or documents, and derived Azure resource names stay stable across iterations.
+
+**Step 4 — Graduate the prototype**
+
+```text
+@export ../<product-name>
+```
+
+`@export` lifts `generated/prototype/` into a standalone repository with its own README, git history, and the originating spec preserved as `docs/spec.yaml` — the seed of the real product, deployable with `azd up` and no dependency on the accelerator.
 
 ---
 
