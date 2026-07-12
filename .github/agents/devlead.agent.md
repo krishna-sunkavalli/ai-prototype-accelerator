@@ -34,7 +34,7 @@ User-visible output rules (STRICT — no exceptions):
 ## On every invocation — do this first
 
 1. Read `spec.yaml`
-2. Run `py -3 accelerator/generators/materialize-prototype.py`
+2. Run `py -3 accelerator/generators/materialize-prototype.py`, then start the build clock: `py -3 accelerator/scripts/build-metrics.py record build-start` for a fresh or full rebuild, or `... record build-start --keep-existing` when resuming (preserves the original clock)
 3. Check if `generated/build-state/manifest.json` exists
 4. Scan `generated/build-state/*.done` files to determine what's already complete
 5. If `manifest.json` exists and the `specChecksum` in it matches the current spec.yaml → resume from the next missing node in the dependency graph
@@ -145,7 +145,9 @@ Rules for the table:
 
 ### Step 10 — Verify deployment (acceptance smoke test)
 
-After `azd up` succeeds and the Container App URL is resolved, run:
+After `azd up` succeeds, record the deploy milestone:
+`py -3 accelerator/scripts/build-metrics.py record deploy-done`.
+Then, once the Container App URL is resolved, run:
 
 ```
 py -3 accelerator/scripts/verify-prototype.py <containerAppUrl>
@@ -160,6 +162,13 @@ pass acceptance, and the user must know that before showing it to anyone.
 If the `websockets` package is unavailable on this machine (exit code 2),
 mark row 10 ⏭️ and note `verify skipped: pip install websockets` in the
 final summary's Acceptance field instead of failing the build.
+
+After verification completes (pass or skip), record it and fetch the
+headline number:
+`py -3 accelerator/scripts/build-metrics.py record verify-done`, then
+`py -3 accelerator/scripts/build-metrics.py summary`. Copy the summary's
+final line (e.g. `Spec -> deployed, verified product: 24m 13s`) into the
+final summary block's Build time field.
 
 ### Final output rule — the Container App URL is the deliverable
 
@@ -183,6 +192,7 @@ Print the final summary block exactly in this form (do not add extra prose):
 | Resource group | <manifest.deployment.resourceGroup>            |
 | Region         | <manifest.deployment.location>                 |
 | Acceptance     | <N>/<M> starter scenarios passing              |
+| Build time     | <final line of build-metrics.py summary>       |
 ```
 
 If the URL cannot be resolved after deployment succeeds, treat that as a deployment failure and print the failure block below with the recovery hint to run `azd env get-values` from `generated/prototype/`.
