@@ -122,6 +122,92 @@ def escape_bicep_string(value: str) -> str:
     return normalized.replace("'", "\\'")
 
 
+ASSETS_DIR = OUTPUT_ROOT / "frontend" / "public" / "assets"
+
+_LOGO_CONTENT_TYPES = {
+    "image/png": ".png",
+    "image/jpeg": ".jpg",
+    "image/svg+xml": ".svg",
+    "image/webp": ".webp",
+    "image/x-icon": ".ico",
+    "image/vnd.microsoft.icon": ".ico",
+}
+_LOGO_MAX_BYTES = 5 * 1024 * 1024
+
+
+def _fetch_remote_logo(url: str) -> str | None:
+    """Download the spec's remote logo into the app's local assets.
+
+    The deployed prototype must be self-contained: hotlinking the customer's
+    site means a broken brand mark whenever the URL moves, blocks hotlinks,
+    or the demo network can't reach it. The URL only needs to be reachable
+    during the build. Returns the web path to serve, or None on any problem
+    (caller falls back to the generated initials badge).
+    """
+    import urllib.request
+
+    try:
+        req = urllib.request.Request(
+            url, headers={"User-Agent": "Mozilla/5.0 (ai-prototype-accelerator logo fetch)"}
+        )
+        with urllib.request.urlopen(req, timeout=20) as resp:
+            content_type = resp.headers.get_content_type()
+            data = resp.read(_LOGO_MAX_BYTES + 1)
+    except Exception as exc:
+        print(f"  WARN: logo download failed ({exc}); using generated badge", file=sys.stderr)
+        return None
+
+    ext = _LOGO_CONTENT_TYPES.get(content_type)
+    if ext is None:
+        # Some CDNs serve images as octet-stream; trust the URL suffix then.
+        suffix = pathlib.Path(url.split("?", 1)[0]).suffix.lower()
+        ext = suffix if suffix in (".png", ".jpg", ".jpeg", ".svg", ".webp", ".ico") else None
+    # Floor guards empty/truncated bodies only — SVG marks can be tiny, and
+    # non-image error pages are already rejected by content type above.
+    if ext is None or not (100 <= len(data) <= _LOGO_MAX_BYTES):
+        print(
+            f"  WARN: logo at {url} rejected (type={content_type}, "
+            f"bytes={len(data)}); using generated badge",
+            file=sys.stderr,
+        )
+        return None
+
+    ASSETS_DIR.mkdir(parents=True, exist_ok=True)
+    target = ASSETS_DIR / f"brand-logo{ext}"
+    target.write_bytes(data)
+    print(f"  OK : brand logo downloaded → {target.relative_to(WORKSPACE_ROOT)} ({len(data)} bytes)")
+    return f"/assets/brand-logo{ext}"
+
+
+def _resolve_logo_url(
+    logo_url: str, agent_name: str, primary: str, accent: str, website: str = ""
+) -> str:
+    """Turn the spec's logo_url into what the app should actually serve.
+
+    - empty + website  → discover the logo on the company site, then download
+    - empty            → generated initials badge (inline SVG data URI)
+    - data: URI        → pass through (already inline)
+    - /assets/... path → pass through (user placed the file manually)
+    - http(s) URL      → download to local assets at build time; badge on failure
+    """
+    if not logo_url and website:
+        # Zero-touch fallback: even when the BA never populated logo_url,
+        # the build discovers the mark itself from customer.website.
+        from logo_discovery import fetch_and_discover
+        discovered = fetch_and_discover(website)
+        if discovered:
+            print(f"  OK : logo discovered on {website} → {discovered}")
+            logo_url = discovered
+    if not logo_url:
+        return _build_inline_logo_svg(agent_name, primary, accent)
+    if logo_url.startswith(("data:", "/assets/", "assets/")):
+        return logo_url
+    if logo_url.startswith(("http://", "https://")):
+        local = _fetch_remote_logo(logo_url)
+        return local or _build_inline_logo_svg(agent_name, primary, accent)
+    return logo_url
+
+
 def _build_inline_logo_svg(agent_name: str, primary: str, accent: str) -> str:
     """Return a `data:image/svg+xml,...` URI for a branded badge logo.
 
@@ -132,7 +218,9 @@ def _build_inline_logo_svg(agent_name: str, primary: str, accent: str) -> str:
     stay unblended on purpose: gradients between arbitrary customer palettes
     (e.g. blue->lime) collapse into muddy in-between tones.
     """
-    initials = "".join(w[0] for w in agent_name.split() if w)[:2].upper() or "AI"
+    # Split camelCase too, so "ConsumersOutagePilot" → "CO", not "C".
+    spaced = re.sub(r"(?<=[a-z0-9])(?=[A-Z])", " ", agent_name)
+    initials = "".join(w[0] for w in spaced.split() if w)[:2].upper() or "AI"
     # Build an SVG without quotes that need escaping inside a data URI.
     svg = (
         "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 44 44'>"
@@ -266,13 +354,13 @@ def build_substitutions(manifest: dict) -> dict[str, str]:  # noqa: C901
     primary_color = b["primaryColor"]
     accent_color = b["accentColor"]
     font_family = ascii_safe(b["fontFamily"])
-    logo_url = b["logoUrl"]
-    # When the spec omits a logo URL, generate an inline SVG branded badge so
-    # the topbar and welcome panel show a coherent agent mark instead of
-    # falling back to plain text initials over the default indigo->violet
-    # gradient (which never matches the spec's primary/accent palette).
-    if not logo_url:
-        logo_url = _build_inline_logo_svg(agent_name, primary_color, accent_color)
+    # Remote logo URLs are downloaded into the app's assets at build time;
+    # an empty logo_url triggers discovery on customer.website, then falls
+    # back to a generated inline SVG badge whose colors match the palette.
+    logo_url = _resolve_logo_url(
+        b["logoUrl"], agent_name, primary_color, accent_color,
+        website=c.get("website", ""),
+    )
     welcome_message = ascii_safe(b["welcomeMessage"])
     use_case_title = ascii_safe(b["useCaseTitle"])
     persona_name = ascii_safe(b["personaName"])

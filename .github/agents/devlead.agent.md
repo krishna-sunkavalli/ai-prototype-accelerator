@@ -34,11 +34,13 @@ User-visible output rules (STRICT — no exceptions):
 ## On every invocation — do this first
 
 1. Read `spec.yaml`
-2. Run `py -3 accelerator/generators/materialize-prototype.py`
+2. Run `py -3 accelerator/generators/materialize-prototype.py`, then start the build clock: `py -3 accelerator/scripts/build-metrics.py record build-start` for a fresh or full rebuild, or `... record build-start --keep-existing` when resuming (preserves the original clock)
 3. Check if `generated/build-state/manifest.json` exists
 4. Scan `generated/build-state/*.done` files to determine what's already complete
 5. If `manifest.json` exists and the `specChecksum` in it matches the current spec.yaml → resume from the next missing node in the dependency graph
-6. If `manifest.json` exists but `specChecksum` differs → full rebuild (spec changed): clear every sentinel atomically by running `py -3 accelerator/scripts/clear-sentinels.py --all` so all steps re-run. Never delete sentinels by hand.
+6. If `manifest.json` exists but `specChecksum` differs → **incremental rebuild** (spec changed):
+   - If `customer.slug` or `deployment.environment_name` changed, this is a new product, not an iteration: run `py -3 accelerator/scripts/clear-sentinels.py --all` and do a full rebuild.
+   - Otherwise run step 1 first (spec-validator refreshes `manifest.json` and preserves the resource-name suffix for the same slug + environment), then run `py -3 accelerator/scripts/plan-rebuild.py` and rerun ONLY the steps it marks RERUN, respecting the dependency graph. Steps marked skip keep their ⏭️ row. This is the accelerator's headline behavior — a spec edit rebuilds only what the edit touches — so never fall back to clear-all for an ordinary spec change. Never delete sentinels by hand.
 7. If `manifest.json` missing → fresh build
 8. If user said "build resume" → resume missing work using the dependency graph below
 9. If user said "rebuild step N" → run `py -3 accelerator/scripts/clear-sentinels.py --step N` (plus `--step M` for any downstream step invalidated by the graph), then rerun and stop
@@ -92,7 +94,7 @@ When resuming, check sentinels against the graph:
 - Step 1 done and any of `02` through `06` missing → run only the missing members of the parallel-ready batch
 - Steps 2-6 all done and `07-hook-agent.done` missing → run step 7
 - Steps 1-7 all done → run preflight, then deployment
-- Sentinel staleness: a step counts as "done" only if `accelerator/generators/sentinels.is_stale()` returns False against the current `manifest.specChecksum` and the step's declared output files. Treat a stale sentinel (spec changed, outputs modified, or legacy plain-timestamp format) as a missing sentinel and rerun the step.
+- Sentinel staleness: a step counts as "done" only if `accelerator/generators/sentinels.is_stale()` returns False. Staleness is judged by the step's **input fingerprint** (the manifest sections that step consumes — see `STEP_INPUTS` in `sentinels.py`), its output hash, and format validity. Convenient CLI: `py -3 accelerator/generators/sentinels.py check --sentinel <path> --manifest generated/build-state/manifest.json` (exit 0 fresh, 1 stale). Treat a stale sentinel (inputs changed, outputs modified, or legacy plain-timestamp format) as a missing sentinel and rerun the step.
 - Never block a missing step in the batch on another step in that same batch
 
 When skipping a completed step, mark its row with the ⏭️ glyph in the status table; do not print any other text for skipped steps.
@@ -129,16 +131,44 @@ Template — re-render this whole block as a Markdown table (NOT inside a code b
 |   7   | Write deploy hooks      |   ⏳   |
 |   8   | Pre-flight checks       |   ⏳   |
 |   9   | Deploy to Azure         |   ⏳   |
+|  10   | Verify deployment       |   ⏳   |
 ```
 
 (The fenced block above is just for reference in this prompt — when you render the live build progress, emit the Markdown table directly, NOT wrapped in a code block, so the renderer styles the borders.)
 
 Rules for the table:
-- Always include all 10 rows (S. No 0–9), even before they start.
+- Always include all 11 rows (S. No 0–10), even before they start.
 - Steps 2–6 are the parallel-ready batch; mark them 🔄 simultaneously when the batch starts.
 - Update the **Status** column in place — do not append duplicate rows or print free-form lines between renders.
 - After a row flips to ✅, ⏭️, or ❌, re-render the entire table once.
 - Keep the centered alignment markers (`:-----:` and `:------:`) for the S. No and Status columns so the renderer centers them.
+
+### Step 10 — Verify deployment (acceptance smoke test)
+
+After `azd up` succeeds, record the deploy milestone:
+`py -3 accelerator/scripts/build-metrics.py record deploy-done`.
+Then, once the Container App URL is resolved, run:
+
+```
+py -3 accelerator/scripts/verify-prototype.py <containerAppUrl>
+```
+
+It drives every starter question through the deployed `/chat` WebSocket and
+reports scenarios passing (routing fired, specialist responded, no errors).
+Mark row 10 ✅ when its exit code is 0, ❌ otherwise. A verification failure
+is a build failure: print the failure block with Step = `Verify` and the
+failing scenario's error as the cause — the app is deployed but did not
+pass acceptance, and the user must know that before showing it to anyone.
+If the `websockets` package is unavailable on this machine (exit code 2),
+mark row 10 ⏭️ and note `verify skipped: pip install websockets` in the
+final summary's Acceptance field instead of failing the build.
+
+After verification completes (pass or skip), record it and fetch the
+headline number:
+`py -3 accelerator/scripts/build-metrics.py record verify-done`, then
+`py -3 accelerator/scripts/build-metrics.py summary`. Copy the summary's
+final line (e.g. `Spec -> deployed, verified product: 24m 13s`) into the
+final summary block's Build time field.
 
 ### Final output rule — the Container App URL is the deliverable
 
@@ -156,11 +186,13 @@ Print the final summary block exactly in this form (do not add extra prose):
 ```
 ### ✅ Build + deploy complete for <manifest.customer.name>
 
-| Field          | Value                                |
-|----------------|--------------------------------------|
-| App URL        | https://<containerAppFqdn>           |
-| Resource group | <manifest.deployment.resourceGroup>  |
-| Region         | <manifest.deployment.location>       |
+| Field          | Value                                          |
+|----------------|------------------------------------------------|
+| App URL        | https://<containerAppFqdn>                     |
+| Resource group | <manifest.deployment.resourceGroup>            |
+| Region         | <manifest.deployment.location>                 |
+| Acceptance     | <N>/<M> starter scenarios passing              |
+| Build time     | <final line of build-metrics.py summary>       |
 ```
 
 If the URL cannot be resolved after deployment succeeds, treat that as a deployment failure and print the failure block below with the recovery hint to run `azd env get-values` from `generated/prototype/`.

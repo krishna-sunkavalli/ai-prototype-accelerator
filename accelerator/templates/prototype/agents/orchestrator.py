@@ -33,7 +33,7 @@ from azure.identity import DefaultAzureCredential, ManagedIdentityCredential
 from agent_framework.foundry import FoundryAgent
 from agent_framework import AgentSession
 
-from agents.tools import sql_tool, search_tool, mock_api_tool
+from agents.tools import sql_tool, search_tool, mock_api_tool, activity
 
 logger = logging.getLogger(__name__)
 
@@ -50,6 +50,12 @@ _specialist_sessions: dict[str, dict[str, AgentSession]] = {}
 _routing_table: dict = {}                              # keyword → agent_name
 _open_websockets: list = []                            # for graceful shutdown
 _pending_confirmations: dict = {}                      # session_id → pending write context
+# Last exchange per chat session, so triage can keep follow-ups sticky and a
+# newly-routed specialist inherits context from whichever specialist answered
+# before it (AgentSession history is per-specialist, so without this a
+# cross-agent follow-up starts from a blank slate).
+_last_exchange: dict[str, dict] = {}                   # session_id → {question, agent, answer}
+_LAST_EXCHANGE_CAP = 500
 
 
 # ── Tool sets ─────────────────────────────────────────────────────────────────
@@ -157,10 +163,20 @@ async def close_all_connections() -> None:
             pass
     _open_websockets.clear()
     _specialist_sessions.clear()
+    _last_exchange.clear()
 
 
 def get_registered_agent_names() -> list:
     return list(_specialist_agents.keys())
+
+
+def get_agent_summaries() -> list:
+    """Display name + role per specialist — powers the welcome team cards."""
+    return [
+        {"name": _display_name(name), "role": config.get("role", "")}
+        for name, config in _agent_configs.items()
+        if name != "triage"
+    ]
 
 
 # ── Config loading ─────────────────────────────────────────────────────────────
@@ -193,6 +209,23 @@ def _get_session(agent_name: str, session_id: str) -> AgentSession:
     return _specialist_sessions.setdefault(agent_name, {}).setdefault(
         session_id, AgentSession()
     )
+
+
+def _humanize_agent_name(name: str) -> str:
+    """'ProcurementAgent' → 'Procurement Agent'; 'materials_estimator' → 'Materials Estimator'.
+
+    str.title() lowercases interior capitals ('ProcurementAgent' →
+    'Procurementagent'), so PascalCase names from the spec must be split at
+    camel boundaries instead.
+    """
+    spaced = name.replace("_", " ").replace("-", " ")
+    spaced = re.sub(r"(?<=[a-z0-9])(?=[A-Z])", " ", spaced)
+    return " ".join(w if w[:1].isupper() else w.capitalize() for w in spaced.split())
+
+
+def _display_name(agent_name: str) -> str:
+    config = _agent_configs.get(agent_name, {})
+    return config.get("display_name") or _humanize_agent_name(agent_name)
 
 
 # ── Routing ────────────────────────────────────────────────────────────────────
@@ -249,24 +282,69 @@ async def route(user_message: str, thread_id: str, websocket) -> None:
 
 
 async def _route_sequential(user_message: str, session_id: str, websocket) -> None:
-    target = await _select_agent_llm(user_message)
-    config = _agent_configs.get(target, {})
+    prev = _last_exchange.get(session_id)
+
+    # Tell triage who answered last so ambiguous follow-ups ("what about
+    # tomorrow?") stay with the same specialist instead of re-routing cold.
+    routing_input = user_message
+    if prev:
+        routing_input = (
+            f"[Context: the previous question in this conversation was handled "
+            f"by the {prev['agent']} specialist]\n{user_message}"
+        )
+    target = await _select_agent_llm(routing_input)
 
     if target not in _specialist_agents:
         await _send(websocket, {"type": "error", "content": f"Agent '{target}' not available."})
         return
 
-    display_name = config.get("display_name", target.replace("_", " ").title())
+    display_name = _display_name(target)
     await _send(websocket, {"type": "handoff", "agent": display_name})
+
+    # When routing lands on a different specialist than last turn, hand it the
+    # previous exchange — its own AgentSession has no cross-agent history.
+    agent_message = user_message
+    if prev and prev["agent"] != target:
+        agent_message = (
+            f"[Context: earlier in this conversation the user asked "
+            f"\"{prev['question'][:200]}\" and the {prev['agent']} specialist "
+            f"answered: {prev['answer'][:300]}]\n{user_message}"
+        )
 
     response = await _run_agent(
         agent_name=target,
         session_id=session_id,
-        user_message=user_message,
+        user_message=agent_message,
         websocket=websocket,
         stream=True,
     )
+
+    if response:
+        if len(_last_exchange) >= _LAST_EXCHANGE_CAP:
+            _last_exchange.clear()
+        _last_exchange[session_id] = {
+            "question": user_message,
+            "agent": target,
+            "answer": _summarize_response(response),
+        }
     await _generate_suggestions(user_message, response, websocket)
+
+
+def _summarize_response(response: str) -> str:
+    """Condense a specialist response for cross-agent context handoff.
+
+    Structured JSON responses carry a `summary` field — prefer it over raw
+    JSON, which wastes context and reads poorly inside a prompt frame.
+    """
+    text = response.strip()
+    if text.startswith("{"):
+        try:
+            parsed = json.loads(text)
+            if isinstance(parsed, dict) and parsed.get("summary"):
+                return str(parsed["summary"])[:500]
+        except (json.JSONDecodeError, ValueError):
+            pass
+    return text[:500]
 
 
 async def _route_parallel(user_message: str, session_id: str, websocket) -> None:
@@ -287,7 +365,7 @@ async def _route_parallel(user_message: str, session_id: str, websocket) -> None
 
     for order in sorted(groups.keys()):
         agents_in_group = groups[order]
-        names = [_agent_configs[a].get("display_name", a) for a in agents_in_group]
+        names = [_display_name(a) for a in agents_in_group]
         await _send(websocket, {"type": "handoff", "agent": " + ".join(names)})
 
         tasks = [
@@ -316,7 +394,7 @@ async def _route_parallel(user_message: str, session_id: str, websocket) -> None
         )
         await _send(websocket, {
             "type": "handoff",
-            "agent": _agent_configs[synthesis_agent].get("display_name", "Synthesis"),
+            "agent": _display_name(synthesis_agent),
         })
         response = await _run_agent(
             agent_name=synthesis_agent,
@@ -366,6 +444,9 @@ async def _run_agent(
     now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     framed_message = f"[Context: current UTC datetime is {now_iso}]\n{user_message}"
 
+    # Bind the tool-activity channel so tools invoked during this run can
+    # surface "Querying X..." status lines to this websocket.
+    activity_token = activity.bind(asyncio.get_running_loop(), websocket)
     try:
         result = await agent.run(framed_message, session=session)
         full_text = str(result).strip() if result else ""
@@ -374,6 +455,10 @@ async def _run_agent(
         if stream:
             await _send(websocket, {"type": "error", "content": f"Agent error: {e}"})
         return ""
+    finally:
+        activity.unbind(activity_token)
+
+    display_name = _display_name(agent_name)
 
     if stream and full_text:
         # Detect structured JSON responses and send as a single message to avoid
@@ -408,12 +493,12 @@ async def _run_agent(
                     pass
 
         if is_json:
-            await _send(websocket, {"type": "text", "content": candidate, "done": True})
+            await _send(websocket, {"type": "text", "content": candidate, "done": True, "agent": display_name})
         else:
             words = full_text.split(" ")
             for i, word in enumerate(words):
                 chunk = word + (" " if i < len(words) - 1 else "")
-                await _send(websocket, {"type": "text", "content": chunk, "done": i == len(words) - 1})
+                await _send(websocket, {"type": "text", "content": chunk, "done": i == len(words) - 1, "agent": display_name})
                 await asyncio.sleep(0.02)
 
     return full_text

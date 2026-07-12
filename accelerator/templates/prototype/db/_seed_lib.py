@@ -7,6 +7,10 @@ Static helper shipped with every prototype. Owns:
     - Container creation with the correct partition-key path
     - Idempotent upserts (re-running the seed never duplicates)
     - Container-name → row-count reporting in a consistent format
+    - Dry-run validation (SEED_DRY_RUN=1): executes the row generators
+      without touching Cosmos and enforces the seed contract (unique 'id',
+      partition-key field present on every row). Preflight uses this to
+      verify the LLM-generated cosmos_seed.py before any deploy.
 
 The per-prototype cosmos_seed.py is responsible only for *data*: deterministic
 RNG, domain-specific row generators, and the SEED_SPECS list passed to
@@ -19,6 +23,9 @@ Why this exists:
     using create_item instead, missing partition_key on a container) caused
     silent reseed failures. Centralising plumbing here eliminates that
     drift class.
+
+Azure SDK imports are lazy: dry-run must work on build hosts that only have
+the accelerator's minimal dependencies installed.
 """
 from __future__ import annotations
 
@@ -26,12 +33,15 @@ import os
 from dataclasses import dataclass
 from typing import Callable, Iterable
 
-from azure.cosmos import CosmosClient, PartitionKey
-from azure.identity import AzureCliCredential, DefaultAzureCredential
+
+def _is_dry_run() -> bool:
+    return os.environ.get("SEED_DRY_RUN", "").strip().lower() in ("1", "true", "yes")
 
 
 def get_credential():
     """Prefer AzureCliCredential locally; fall back to DefaultAzureCredential."""
+    from azure.identity import AzureCliCredential, DefaultAzureCredential
+
     try:
         cred = AzureCliCredential()
         # Force a token acquisition so we fail fast if `az login` is missing.
@@ -45,7 +55,9 @@ def get_credential():
         return DefaultAzureCredential(managed_identity_client_id=client_id)
 
 
-def get_client(endpoint: str | None = None) -> CosmosClient:
+def get_client(endpoint: str | None = None):
+    from azure.cosmos import CosmosClient
+
     endpoint = endpoint or os.environ["AZURE_COSMOS_ENDPOINT"]
     return CosmosClient(endpoint, get_credential())
 
@@ -67,11 +79,25 @@ class SeedSpec:
 
 class SeedRunner:
     def __init__(self, database_name: str | None = None, endpoint: str | None = None):
-        self.database_name = database_name or os.environ["AZURE_COSMOS_DATABASE"]
-        self.client = get_client(endpoint)
-        self.db = self.client.get_database_client(self.database_name)
+        self.dry_run = _is_dry_run()
+        if self.dry_run:
+            self.database_name = database_name or os.environ.get(
+                "AZURE_COSMOS_DATABASE", "(dry-run)"
+            )
+            self.client = None
+            self.db = None
+        else:
+            self.database_name = database_name or os.environ["AZURE_COSMOS_DATABASE"]
+            self.client = get_client(endpoint)
+            self.db = self.client.get_database_client(self.database_name)
 
     def run(self, specs: list[SeedSpec]) -> None:
+        if self.dry_run:
+            self._run_dry(specs)
+            return
+
+        from azure.cosmos import PartitionKey
+
         print(f"Seeding Cosmos DB: {self.database_name}")
         for spec in specs:
             if not spec.partition_key.startswith("/"):
@@ -93,3 +119,57 @@ class SeedRunner:
                 count += 1
             print(f"  Seeded {spec.container_id}: {count} items")
         print("Seed complete.")
+
+    def _run_dry(self, specs: list[SeedSpec]) -> None:
+        """Validate every generator against the seed contract, no Cosmos writes.
+
+        Fails (SystemExit 1) on: partition key not starting with '/', a row
+        missing 'id', duplicate ids within a container, or a row missing the
+        partition-key field. Ensures a generated cosmos_seed.py that passes
+        dry-run cannot fail the real seed for contract reasons.
+        """
+        print(f"Seed DRY RUN — validating {len(specs)} container spec(s), no Cosmos writes")
+        failures: list[str] = []
+        for spec in specs:
+            if not spec.partition_key.startswith("/"):
+                failures.append(
+                    f"{spec.container_id}: partition_key must start with '/' "
+                    f"(got {spec.partition_key!r})"
+                )
+                continue
+            pk_field = spec.partition_key.lstrip("/").split("/")[0]
+            seen_ids: set = set()
+            count = 0
+            container_failures = 0
+            for row in spec.rows():
+                count += 1
+                if container_failures >= 3:
+                    break  # enough evidence for this container
+                if not isinstance(row, dict):
+                    failures.append(f"{spec.container_id}: row {count} is not a dict")
+                    container_failures += 1
+                    continue
+                if "id" not in row:
+                    failures.append(f"{spec.container_id}: row {count} missing 'id'")
+                    container_failures += 1
+                elif row["id"] in seen_ids:
+                    failures.append(
+                        f"{spec.container_id}: duplicate id {row['id']!r} at row {count}"
+                    )
+                    container_failures += 1
+                else:
+                    seen_ids.add(row["id"])
+                if pk_field not in row:
+                    failures.append(
+                        f"{spec.container_id}: row {count} missing partition-key "
+                        f"field '{pk_field}'"
+                    )
+                    container_failures += 1
+            status = "FAIL" if container_failures else "OK"
+            print(f"  {status}: {spec.container_id} — {count} rows")
+        if failures:
+            print("Dry run FAILED:")
+            for f in failures:
+                print(f"  - {f}")
+            raise SystemExit(1)
+        print("Dry run passed — seed contract satisfied.")

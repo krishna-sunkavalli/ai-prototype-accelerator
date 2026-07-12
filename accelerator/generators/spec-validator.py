@@ -55,6 +55,10 @@ def main() -> None:
     if not re.fullmatch(r"[a-z]+[a-z0-9]*", region):
         errors.append(f"deployment.azure_region invalid: {region!r}")
 
+    website = spec.get("customer", {}).get("website", "")
+    if website and not website.startswith(("http://", "https://")):
+        errors.append(f"customer.website must be an http(s) URL: {website!r}")
+
     # Routing keyword overlap check
     seen: dict[str, str] = {}
     overlaps: list[str] = []
@@ -96,6 +100,28 @@ def main() -> None:
     rng = random.Random(checksum)
     suffix = "".join(rng.choice(string.ascii_lowercase + string.digits) for _ in range(4))
 
+    # Sticky suffix: when the previous manifest targeted the same product
+    # (same slug + environment), keep its suffix so derived resource names
+    # (Cosmos account, storage, ACR) stay stable across spec iterations.
+    # Without this, every spec edit re-derives the suffix from the checksum
+    # and the next deploy abandons the previously provisioned resources —
+    # which defeats incremental rebuild. A new slug or environment is a new
+    # product and gets a fresh suffix.
+    slug_now = spec["customer"]["slug"]
+    env_now = spec["deployment"]["environment_name"]
+    if MANIFEST_PATH.exists():
+        try:
+            prev = json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
+            prev_suffix = prev.get("deployment", {}).get("suffix", "")
+            if (
+                prev_suffix
+                and prev.get("customer", {}).get("slug") == slug_now
+                and prev.get("deployment", {}).get("environmentName") == env_now
+            ):
+                suffix = prev_suffix
+        except (json.JSONDecodeError, OSError):
+            pass
+
     storage_base = slug.replace("-", "")[:20]
     customer = spec["customer"]
     deployment = spec["deployment"]
@@ -129,6 +155,22 @@ def main() -> None:
     # Length-budget warnings — flag now what would otherwise blow up at deploy time.
     resource_prefix = f"{customer_short}-{demo_theme}"
     warnings: list[str] = []
+
+    # Starter-question ergonomics: the UI renders them as chips, which read
+    # best as 4-5 short questions. Soft warnings, not failures.
+    starter_qs = spec.get("starter_questions") or []
+    if len(starter_qs) > 5:
+        warnings.append(
+            f"{len(starter_qs)} starter questions; the chip row reads best "
+            f"with 4-5. Consider trimming spec.yaml starter_questions."
+        )
+    long_qs = [q for q in starter_qs if len(str(q)) > 80]
+    if long_qs:
+        warnings.append(
+            f"{len(long_qs)} starter question(s) exceed 80 characters and "
+            f"will wrap awkwardly as chips. Aim for <= 70 characters, e.g. "
+            f"shorten: {str(long_qs[0])[:60]!r}..."
+        )
     # Container Apps Environment name = `${resourcePrefix}-cae` (max 32 chars).
     if len(resource_prefix) + 4 > 32:
         warnings.append(
@@ -150,6 +192,7 @@ def main() -> None:
             "slug": slug,
             "name": customer["name"],
             "industry": customer.get("industry", ""),
+            "website": customer.get("website", ""),
         },
         "deployment": {
             "environmentName": env_name,
@@ -252,7 +295,7 @@ def main() -> None:
         sys.exit(1)
 
     from sentinels import write as _write_sentinel  # noqa: E402
-    _write_sentinel(DONE_PATH, manifest["specChecksum"], [MANIFEST_PATH])
+    _write_sentinel(DONE_PATH, manifest["specChecksum"], [MANIFEST_PATH], manifest=manifest)
 
     print("[Step 1/7] Spec validation passed.")
     print(f"  Customer:  {customer['name']}")

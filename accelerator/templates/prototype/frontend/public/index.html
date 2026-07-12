@@ -5,8 +5,6 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title></title>
 <link rel="icon" id="favicon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23cbd5e1'/%3E%3C/svg%3E">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -15,6 +13,7 @@
   --brand-hover: #4338ca;
   --brand-light: #dcdafa;
   --brand-text:  #433cc3;
+  --brand-bubble:#f4f3fd;
   --brand-muted: rgba(99,102,241,0.08);
   --accent:      #7c3aed;
 
@@ -46,7 +45,9 @@ html, body {
 }
 
 body {
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  /* System stack only — no webfont request, so typography never flashes or
+     degrades on restricted networks. config.FONT_FAMILY overrides at runtime. */
+  font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, 'Inter', Roboto, sans-serif;
   background: var(--gray-100);
   color: var(--gray-800);
   display: flex;
@@ -58,6 +59,7 @@ body {
 .topbar {
   background: #fff;
   border-bottom: 1px solid var(--gray-200);
+  box-shadow: var(--shadow-sm);
   padding: 0 28px;
   height: 68px;
   display: flex;
@@ -131,7 +133,7 @@ body {
 .topbar-subtitle {
   font-size: 0.63rem;
   font-weight: 500;
-  color: var(--gray-400);
+  color: var(--gray-500);
   letter-spacing: 0.01em;
 }
 
@@ -218,7 +220,7 @@ body {
 
 .profile-role {
   font-size: 0.64rem;
-  color: var(--gray-400);
+  color: var(--gray-500);
   font-weight: 500;
 }
 
@@ -258,7 +260,7 @@ body {
 }
 
 .profile-menu-name { font-size: 0.82rem; font-weight: 600; color: var(--gray-800); }
-.profile-menu-sub  { font-size: 0.68rem; color: var(--gray-400); margin-top: 2px; }
+.profile-menu-sub  { font-size: 0.68rem; color: var(--gray-500); margin-top: 2px; }
 
 .profile-menu-item {
   display: flex;
@@ -310,6 +312,19 @@ body {
   justify-content: center;
   padding: 0 24px 40px;
   text-align: center;
+  /* Single-color brand wash — adds brand presence to the empty state
+     without blending two colors (which muddies real palettes). */
+  background: radial-gradient(620px 320px at 50% 42%, var(--brand-muted), transparent 70%);
+}
+
+.welcome-eyebrow {
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: var(--brand-text);
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  margin-bottom: 12px;
+  animation: fadeUp 0.35s 0.05s ease both;
 }
 
 .welcome-logo {
@@ -368,10 +383,44 @@ body {
 
 .welcome-desc {
   font-size: 0.9rem;
-  color: var(--gray-500);
+  color: var(--gray-600);
   line-height: 1.65;
   max-width: 480px;
   animation: fadeUp 0.35s 0.15s ease both;
+}
+
+.team-row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 26px;
+  max-width: 780px;
+  animation: fadeUp 0.35s 0.2s ease both;
+}
+
+.team-card {
+  background: #fff;
+  border: 1px solid var(--gray-200);
+  border-top: 3px solid var(--brand);
+  border-radius: 12px;
+  padding: 12px 16px;
+  max-width: 236px;
+  text-align: left;
+  box-shadow: var(--shadow-sm);
+}
+
+.team-card-name {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--gray-800);
+  margin-bottom: 3px;
+}
+
+.team-card-role {
+  font-size: 0.7rem;
+  color: var(--gray-500);
+  line-height: 1.5;
 }
 
 @keyframes fadeUp {
@@ -396,6 +445,21 @@ body {
 .messages-area::-webkit-scrollbar { width: 4px; }
 .messages-area::-webkit-scrollbar-track { background: transparent; }
 .messages-area::-webkit-scrollbar-thumb { background: var(--gray-300); border-radius: 2px; }
+
+/* Readable centered column — on wide screens the conversation and input
+   stay a comfortable measure instead of stretching edge-to-edge. */
+.msg-wrap,
+.msg-system-wrap,
+.msg-tool-wrap,
+.typing-wrap,
+.suggestions-row,
+.starters-bar,
+.input-row {
+  width: 100%;
+  max-width: 1016px;
+  margin-left: auto;
+  margin-right: auto;
+}
 
 .msg-wrap {
   padding: 0 28px;
@@ -440,7 +504,7 @@ body {
 }
 
 .msg-row.agent .msg-bubble {
-  background: #fff;
+  background: var(--brand-bubble);
   color: var(--gray-800);
   border: 1px solid var(--gray-200);
   border-left: 3px solid var(--accent);
@@ -457,6 +521,103 @@ body {
   box-shadow: 0 2px 8px rgba(15,23,42,.15);
 }
 
+/* Agent name inside the bubble header */
+.msg-bubble-agent-name {
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: var(--brand-text);
+  margin-bottom: 4px;
+  letter-spacing: 0.01em;
+}
+
+/* Meta line under a message: steps toggle, latency, timestamp, copy */
+.msg-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 0.66rem;
+  color: var(--gray-400);
+  padding: 3px 6px 0;
+}
+
+.msg-meta.user { justify-content: flex-end; }
+
+.msg-steps {
+  cursor: pointer;
+  color: var(--gray-500);
+  font-weight: 600;
+  background: none;
+  border: none;
+  font-family: inherit;
+  font-size: inherit;
+  padding: 0;
+}
+
+.msg-steps:hover { color: var(--brand-text); }
+
+.msg-steps-list {
+  display: none;
+  font-size: 0.7rem;
+  color: var(--gray-500);
+  font-style: italic;
+  padding: 4px 6px 0;
+  line-height: 1.75;
+}
+
+.msg-steps-list.open { display: block; }
+
+.msg-copy {
+  opacity: 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+  font-size: inherit;
+  font-family: inherit;
+  color: var(--gray-400);
+  padding: 0;
+  transition: opacity .15s, color .15s;
+}
+
+.msg-wrap:hover .msg-copy, .msg-copy:focus-visible { opacity: 1; }
+.msg-copy:hover { color: var(--brand-text); }
+
+.retry-btn {
+  margin-top: 8px;
+  background: #fff;
+  border: 1px solid var(--brand);
+  color: var(--brand-text);
+  border-radius: var(--radius);
+  padding: 5px 14px;
+  font-size: 0.76rem;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.retry-btn:hover { background: var(--brand); color: #fff; }
+
+/* Jump-to-latest pill when the user has scrolled up */
+.jump-latest {
+  display: none;
+  position: fixed;
+  bottom: 96px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--gray-900);
+  color: #fff;
+  border: none;
+  border-radius: 999px;
+  padding: 7px 16px;
+  font-size: 0.76rem;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+  z-index: 250;
+  box-shadow: var(--shadow-lg);
+}
+
+.jump-latest.show { display: block; }
+
 /* System / handoff */
 .msg-system-wrap {
   display: flex;
@@ -470,9 +631,39 @@ body {
 
 .msg-system-text {
   font-size: 0.71rem;
-  color: var(--gray-400);
+  color: var(--gray-500);
   font-style: italic;
   white-space: nowrap;
+}
+
+/* Tool activity — live status lines while a specialist runs its tools */
+.msg-tool-wrap {
+  padding: 2px 28px 2px 68px;
+  animation: msgIn 0.2s ease both;
+}
+
+.msg-tool-text {
+  font-size: 0.7rem;
+  color: var(--gray-500);
+  font-style: italic;
+}
+
+/* Agent attribution — name label above each specialist bubble */
+.msg-col {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  max-width: 66%;
+}
+
+.msg-col .msg-bubble { max-width: 100%; }
+
+.msg-agent-name {
+  font-size: 0.66rem;
+  font-weight: 600;
+  color: var(--gray-500);
+  letter-spacing: 0.02em;
+  padding-left: 4px;
 }
 
 /* Typing indicator */
@@ -490,6 +681,13 @@ body {
   border-bottom-left-radius: 4px;
   padding: 12px 16px;
   box-shadow: var(--shadow-sm);
+}
+
+.typing-label {
+  font-size: 0.72rem;
+  color: var(--gray-500);
+  font-style: italic;
+  margin-right: 6px;
 }
 
 .typing-dot {
@@ -588,6 +786,13 @@ body {
 }
 
 /* Markdown */
+.msg-bubble ul, .msg-bubble ol {
+  margin: 6px 0;
+  padding-left: 20px;
+}
+.msg-bubble li { margin: 3px 0; }
+.msg-bubble a { color: var(--brand-text); text-decoration: underline; }
+.msg-bubble li::marker { color: var(--brand); }
 .msg-bubble strong { font-weight: 600; }
 .msg-bubble em { font-style: italic; color: var(--gray-600); }
 .msg-row.user .msg-bubble em { color: rgba(255,255,255,.8); }
@@ -672,8 +877,12 @@ body {
 .msg-input {
   flex: 1;
   border: 1.5px solid var(--gray-200);
-  border-radius: 12px;
+  border-radius: 22px;
   padding: 12px 18px;
+  resize: none;
+  line-height: 1.5;
+  max-height: 132px;
+  overflow-y: auto;
   font-size: 0.875rem;
   font-family: inherit;
   color: var(--gray-800);
@@ -696,7 +905,7 @@ body {
 .send-btn {
   width: 44px;
   height: 44px;
-  border-radius: 12px;
+  border-radius: 50%;
   background: var(--brand);
   border: none;
   color: #fff;
@@ -741,6 +950,37 @@ body {
 
 .hidden { display: none !important; }
 
+/* ── ACCESSIBILITY ───────────────────────────────── */
+.starter-chip:focus-visible,
+.suggestion-chip:focus-visible,
+.send-btn:focus-visible,
+.msg-input:focus-visible,
+.profile-trigger:focus-visible,
+.retry-btn:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ── SMALL SCREENS ───────────────────────────────── */
+@media (max-width: 640px) {
+  .topbar { padding: 0 14px; height: 58px; }
+  .topbar-logo { width: 38px; height: 38px; }
+  .profile-info { display: none; }
+  .msg-wrap, .msg-system-wrap { padding-left: 14px; padding-right: 14px; }
+  .msg-tool-wrap { padding-left: 52px; padding-right: 14px; }
+  .msg-bubble, .msg-col { max-width: 84%; }
+  .starters-bar { padding: 12px 14px 0; }
+  .input-row { padding: 12px 14px 14px; }
+  .welcome-title { font-size: 1.3rem; }
+}
+
 /* ── BOOT VEIL ───────────────────────────────────── */
 /* Covers the page until /config resolves and the customer theme is applied,
    so the hardcoded fallback palette above never flashes on screen. */
@@ -776,7 +1016,7 @@ body {
 <body>
 
 <!-- Boot veil — removed once the customer theme is applied -->
-<div id="bootVeil"><div class="boot-spinner"></div></div>
+<div id="bootVeil" role="status" aria-label="Loading"><div class="boot-spinner"></div></div>
 
 <!-- Topbar -->
 <div class="topbar">
@@ -794,7 +1034,7 @@ body {
     <button class="reset-btn" id="resetBtn" onclick="resetData()">↺ Reset Data</button>
 
     <div class="profile-dropdown" id="profileDropdown">
-      <button class="profile-trigger" id="profileTrigger">
+      <button class="profile-trigger" id="profileTrigger" aria-label="Profile menu">
         <div class="profile-avatar" id="profileAvatar">AK</div>
         <div class="profile-info">
           <div class="profile-name" id="profileName">User</div>
@@ -824,8 +1064,10 @@ body {
     <div class="welcome-logo" id="welcomeLogo">
       <span id="welcomeLogoText">AI</span>
     </div>
+    <div class="welcome-eyebrow" id="welcomeEyebrow" style="display:none"></div>
     <h1 class="welcome-title" id="welcomeTitle">Welcome</h1>
     <p class="welcome-desc" id="welcomeDesc">Your AI assistant is ready.</p>
+    <div class="team-row" id="teamRow"></div>
   </div>
 
   <!-- Messages -->
@@ -835,14 +1077,14 @@ body {
   <div class="bottom-area">
     <div class="starters-bar" id="startersBar"></div>
     <div class="input-row">
-      <input
+      <textarea
         class="msg-input"
         id="msgInput"
-        type="text"
+        rows="1"
         placeholder="Ask a question..."
-        autocomplete="off"
-      />
-      <button class="send-btn" id="sendBtn" title="Send">
+        aria-label="Ask a question"
+      ></textarea>
+      <button class="send-btn" id="sendBtn" title="Send" aria-label="Send message">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
           <line x1="22" y1="2" x2="11" y2="13"></line>
           <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
@@ -852,6 +1094,7 @@ body {
   </div>
 </div>
 
+<button class="jump-latest" id="jumpLatest">&#8595; Latest</button>
 <div class="toast" id="toast"></div>
 
 <script>
@@ -865,6 +1108,11 @@ var reconnectAttempts = 0;
 var config = {};
 var currentAgentBubble = null;
 var startersHidden = false;
+var lastUserMessage = '';
+var turnActivities = [];
+var turnStartTs = 0;
+var typingEl = null;
+var nearBottom = true;
 
 /* ── CONFIG ─────────────────────────────────────── */
 async function loadConfig() {
@@ -905,6 +1153,7 @@ function applyTheme() {
   r.style.setProperty('--brand',       primary);
   r.style.setProperty('--brand-hover', darken(primary, 0.12));
   r.style.setProperty('--brand-light', lighten(primary, 0.8));
+  r.style.setProperty('--brand-bubble', lighten(primary, 0.94));
   r.style.setProperty('--brand-text',  darken(primary, 0.15));
   r.style.setProperty('--brand-muted', hexRgba(primary, 0.08));
   r.style.setProperty('--accent',      accent);
@@ -927,11 +1176,15 @@ function applyContent() {
   var agent    = config.AGENT_NAME    || 'Assistant';
   var customer = config.CUSTOMER_NAME || 'AI Prototype';
   var logo     = config.LOGO_URL      || '';
-  var initials = agent.split(' ').map(function(w){return w[0]||'';}).join('').toUpperCase().slice(0,2);
-  // Generated badges (SVG data URIs from fill-templates.py) render edge-to-edge;
-  // uploaded raster logos render transparent on the brand tile (add the
-  // 'on-tile' class for logos that need a white backdrop to stay legible).
-  var logoClass = (logo.indexOf('data:image/svg+xml') === 0) ? ' class="generated"' : '';
+  // Split camelCase too, so "ConsumersOutagePilot" → "CO", not "C".
+  var initials = agent.replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .split(/\s+/).map(function(w){return w[0]||'';}).join('').toUpperCase().slice(0,2);
+  // Generated badges (SVG data URIs from fill-templates.py) render edge-to-edge.
+  // Sourced company logos sit on the white tile by default — real-world marks
+  // are designed for light backgrounds and would drown on the brand tile.
+  var logoClass = '';
+  if (logo.indexOf('data:image/svg+xml') === 0) logoClass = ' class="generated"';
+  else if (logo) logoClass = ' class="on-tile"';
 
   // Topbar logo
   if (logo) {
@@ -949,6 +1202,24 @@ function applyContent() {
   }
   document.getElementById('welcomeTitle').textContent = 'Welcome to ' + agent;
   document.getElementById('welcomeDesc').textContent  = config.WELCOME_MESSAGE || '';
+
+  // Use-case eyebrow above the welcome title
+  var eyebrow = document.getElementById('welcomeEyebrow');
+  if (config.USE_CASE_TITLE) {
+    eyebrow.textContent = config.USE_CASE_TITLE;
+    eyebrow.style.display = 'block';
+  }
+
+  // Meet-the-team cards — the specialists are the product story
+  var teamRow = document.getElementById('teamRow');
+  teamRow.innerHTML = '';
+  (config.AGENTS || []).slice(0, 4).forEach(function(a) {
+    var card = document.createElement('div');
+    card.className = 'team-card';
+    card.innerHTML = '<div class="team-card-name">' + escHtml(a.name || '') + '</div>'
+      + '<div class="team-card-role">' + escHtml((a.role || '').slice(0, 110)) + '</div>';
+    teamRow.appendChild(card);
+  });
 
   // Profile
   var pName = config.PERSONA_NAME || 'User';
@@ -1007,6 +1278,18 @@ function sendMessage(text) {
   text = (text||'').trim();
   if (!text || isWaiting) return;
 
+  // Never swallow a message into a closed socket: reconnect is already
+  // scheduled, and entering the waiting state would lock the input forever.
+  if (!ws || ws.readyState !== 1) {
+    showToast('Reconnecting — please try again in a moment');
+    return;
+  }
+
+  lastUserMessage = text;
+  turnActivities = [];
+  turnStartTs = Date.now();
+  nearBottom = true;
+
   // First message — hide welcome, show messages
   if (!startersHidden) {
     document.getElementById('welcomeScreen').classList.add('hidden');
@@ -1029,6 +1312,7 @@ function handleMsg(msg) {
   var t = msg.type;
 
   if (t === 'text') {
+    hideTyping();
     if (!currentAgentBubble) currentAgentBubble = startAgentBubble(msg.agent || config.AGENT_NAME);
     appendToken(currentAgentBubble, msg.content || '');
     if (msg.done) {
@@ -1039,6 +1323,10 @@ function handleMsg(msg) {
 
   } else if (t === 'handoff') {
     appendSystemMsg('Routing to ' + (msg.agent || 'specialist') + '...');
+    showTyping(msg.agent || '');
+
+  } else if (t === 'tool_activity') {
+    appendToolActivity(msg.label || 'Working...');
 
   } else if (t === 'suggestions') {
     renderSuggestions(msg.questions || []);
@@ -1049,11 +1337,13 @@ function handleMsg(msg) {
     setWaiting(false);
 
   } else if (t === 'error') {
-    appendError(msg.message || 'An error occurred.');
+    hideTyping();
+    appendError(msg.content || msg.message || 'An error occurred.');
     setWaiting(false);
     currentAgentBubble = null;
 
   } else if (t === 'done') {
+    hideTyping();
     setWaiting(false);
     currentAgentBubble = null;
   }
@@ -1073,32 +1363,46 @@ function appendUserMsg(text) {
   bbl.textContent = text;
   row.appendChild(bbl);
   wrap.appendChild(row);
+
+  var meta = document.createElement('div');
+  meta.className = 'msg-meta user';
+  meta.textContent = new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  wrap.appendChild(meta);
+
   area.appendChild(wrap);
   scrollBottom();
+}
+
+function showTyping(agentName) {
+  hideTyping();
+  var area = document.getElementById('messagesArea');
+  var wrap = document.createElement('div');
+  wrap.className = 'typing-wrap';
+  wrap.setAttribute('role', 'status');
+  var tb = document.createElement('div');
+  tb.className = 'typing-bubble';
+  tb.innerHTML = (agentName ? '<span class="typing-label">' + escHtml(agentName) + ' is thinking</span>' : '')
+    + '<div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div>';
+  wrap.appendChild(tb);
+  area.appendChild(wrap);
+  typingEl = wrap;
+  scrollBottom();
+}
+
+function hideTyping() {
+  if (typingEl) { typingEl.remove(); typingEl = null; }
 }
 
 function startAgentBubble(agentName) {
   var area = document.getElementById('messagesArea');
   var init = (agentName||'A')[0].toUpperCase();
-
-  // Typing bubble
-  var typingWrap = document.createElement('div');
-  typingWrap.className = 'typing-wrap';
-  var tb = document.createElement('div');
-  tb.className = 'typing-bubble';
-  tb.innerHTML = '<div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div>';
-  typingWrap.appendChild(tb);
-  area.appendChild(typingWrap);
-  scrollBottom();
-
-  return { area: area, typingWrap: typingWrap, wrap: null, row: null, bubble: null, init: init, rawText: '', rendered: false };
+  return { area: area, wrap: null, row: null, bubble: null, content: null, init: init, agentName: agentName || '', rawText: '', rendered: false };
 }
 
 function appendToken(handle, token) {
   if (!handle) return;
   if (!handle.rendered) {
-    // Replace typing with real bubble
-    handle.typingWrap.remove();
+    hideTyping();
 
     var wrap = document.createElement('div');
     wrap.className = 'msg-wrap';
@@ -1110,27 +1414,42 @@ function appendToken(handle, token) {
     av.className = 'msg-avatar';
     av.textContent = handle.init;
 
+    // Bubble = name header + content; content re-renders per token so the
+    // header survives streaming updates.
     var bbl = document.createElement('div');
     bbl.className = 'msg-bubble';
+    if (handle.agentName) {
+      var nameEl = document.createElement('div');
+      nameEl.className = 'msg-bubble-agent-name';
+      nameEl.textContent = handle.agentName;
+      bbl.appendChild(nameEl);
+    }
+    var contentEl = document.createElement('div');
+    bbl.appendChild(contentEl);
+
+    var col = document.createElement('div');
+    col.className = 'msg-col';
+    col.appendChild(bbl);
 
     row.appendChild(av);
-    row.appendChild(bbl);
+    row.appendChild(col);
     wrap.appendChild(row);
     handle.area.appendChild(wrap);
 
-    handle.wrap   = wrap;
-    handle.row    = row;
-    handle.bubble = bbl;
+    handle.wrap    = wrap;
+    handle.row     = row;
+    handle.bubble  = bbl;
+    handle.content = contentEl;
     handle.rendered = true;
   }
   handle.rawText += token;
-  handle.bubble.innerHTML = renderMd(handle.rawText);
+  handle.content.innerHTML = renderMd(handle.rawText);
   scrollBottom();
 }
 
 function finalizeAgentBubble(handle) {
   if (!handle || !handle.rendered) {
-    if (handle && handle.typingWrap) handle.typingWrap.remove();
+    hideTyping();
     return;
   }
   // Try to parse raw text as structured JSON and render as cards/table
@@ -1149,20 +1468,68 @@ function finalizeAgentBubble(handle) {
     }
   }
   if (parsed && typeof parsed === 'object') {
-    handle.bubble.innerHTML = '';
-    handle.bubble.appendChild(renderStructuredJSON(parsed));
+    handle.content.innerHTML = '';
+    handle.content.appendChild(renderStructuredJSON(parsed));
   }
+  attachAgentMeta(handle);
+}
+
+/* Meta line under a finished answer: reasoning-steps toggle, latency,
+   timestamp, copy — turns streamed status noise into an inspectable trail. */
+function attachAgentMeta(handle) {
+  var col = handle.row.querySelector('.msg-col');
+  if (!col) return;
+
+  var meta = document.createElement('div');
+  meta.className = 'msg-meta';
+
+  var stepsList = null;
+  if (turnActivities.length) {
+    var steps = document.createElement('button');
+    steps.className = 'msg-steps';
+    steps.textContent = '\u2699 ' + turnActivities.length + ' step' + (turnActivities.length > 1 ? 's' : '');
+    stepsList = document.createElement('div');
+    stepsList.className = 'msg-steps-list';
+    stepsList.innerHTML = turnActivities.map(function(a){ return '\u2699 ' + escHtml(a); }).join('<br>');
+    steps.onclick = function() { stepsList.classList.toggle('open'); };
+    meta.appendChild(steps);
+  }
+
+  if (turnStartTs) {
+    var lat = document.createElement('span');
+    lat.textContent = ((Date.now() - turnStartTs) / 1000).toFixed(1) + 's';
+    meta.appendChild(lat);
+  }
+
+  var time = document.createElement('span');
+  time.textContent = new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  meta.appendChild(time);
+
+  var copy = document.createElement('button');
+  copy.className = 'msg-copy';
+  copy.textContent = '\u2398 Copy';
+  copy.setAttribute('aria-label', 'Copy response');
+  copy.onclick = function() {
+    navigator.clipboard.writeText(handle.bubble.innerText).then(function(){ showToast('Copied'); });
+  };
+  meta.appendChild(copy);
+
+  col.appendChild(meta);
+  if (stepsList) col.appendChild(stepsList);
+
+  // The live status lines collapse into the steps toggle
+  document.querySelectorAll('.msg-tool-wrap.live').forEach(function(el){ el.remove(); });
 }
 
 function renderStructuredJSON(obj) {
   var container = document.createElement('div');
-  container.style.cssText = 'display:flex;flex-direction:column;gap:10px;font-size:13px;color:#1f2937;';
+  container.style.cssText = 'display:flex;flex-direction:column;gap:10px;font-size:13px;color:var(--gray-700);';
 
-  // Summary
+  // Summary — inline markdown only (code/bold/italic), no block elements
   if (obj.summary) {
     var p = document.createElement('p');
-    p.style.cssText = 'font-weight:600;color:#111827;margin:0;';
-    p.textContent = obj.summary;
+    p.style.cssText = 'font-weight:600;color:var(--gray-900);margin:0;';
+    p.innerHTML = renderInlineMd(obj.summary);
     container.appendChild(p);
   }
 
@@ -1182,13 +1549,13 @@ function renderStructuredJSON(obj) {
     var tableWrap = document.createElement('div');
     tableWrap.style.cssText = 'overflow-x:auto;';
     var table = document.createElement('table');
-    table.style.cssText = 'width:100%;border-collapse:collapse;font-size:11px;';
+    table.style.cssText = 'width:100%;border-collapse:collapse;font-size:12px;';
     var thead = document.createElement('thead');
     var hr = document.createElement('tr');
     keys.forEach(function(k) {
       var th = document.createElement('th');
-      th.style.cssText = 'text-align:left;padding:4px 8px;background:#f3f4f6;border:1px solid #e5e7eb;font-weight:600;color:#6b7280;white-space:nowrap;';
-      th.textContent = k.replace(/_/g,' ');
+      th.style.cssText = 'text-align:left;padding:5px 9px;background:var(--gray-50);border:1px solid var(--gray-200);font-weight:600;font-size:10px;color:var(--gray-600);text-transform:uppercase;letter-spacing:0.04em;white-space:nowrap;';
+      th.textContent = k.replace(/_/g,' ').replace(/([a-z0-9])([A-Z])/g,'$1 $2');
       hr.appendChild(th);
     });
     thead.appendChild(hr);
@@ -1196,13 +1563,20 @@ function renderStructuredJSON(obj) {
     var tbody = document.createElement('tbody');
     items.forEach(function(item, i) {
       var row = document.createElement('tr');
-      row.style.background = i % 2 === 0 ? '#fff' : '#f9fafb';
+      row.style.background = i % 2 === 0 ? '#fff' : 'var(--gray-50)';
       keys.forEach(function(k) {
         var td = document.createElement('td');
-        td.style.cssText = 'padding:4px 8px;border:1px solid #e5e7eb;';
+        td.style.cssText = 'padding:5px 9px;border:1px solid var(--gray-200);color:var(--gray-700);';
         var val = item[k];
         if (typeof val === 'number' && k.indexOf('balance') !== -1) {
           td.textContent = '$' + val.toLocaleString('en-US', {maximumFractionDigits:0});
+          td.style.textAlign = 'right';
+        } else if (typeof val === 'number') {
+          td.textContent = val.toLocaleString('en-US');
+          td.style.textAlign = 'right';
+        } else if (typeof val === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(val)) {
+          var d = new Date(val);
+          td.textContent = isNaN(d) ? val : d.toLocaleString([], {month:'short', day:'numeric', hour:'numeric', minute:'2-digit'});
         } else {
           td.textContent = val !== null && val !== undefined ? val : '—';
         }
@@ -1223,7 +1597,7 @@ function renderStructuredJSON(obj) {
     pillRow.style.cssText = 'display:flex;flex-wrap:wrap;gap:6px;';
     metrics.forEach(function(k) {
       var pill = document.createElement('span');
-      pill.style.cssText = 'background:#f3f4f6;border-radius:999px;padding:2px 10px;font-size:11px;color:#374151;';
+      pill.style.cssText = 'background:var(--brand-light);border-radius:999px;padding:3px 11px;font-size:11px;font-weight:500;color:var(--brand-text);';
       var val = obj[k];
       if (typeof val === 'number' && k.indexOf('exposure') !== -1) val = '$' + val.toLocaleString('en-US', {maximumFractionDigits:0});
       if (typeof val === 'number' && k === 'confidence') val = (val * 100).toFixed(0) + '%';
@@ -1236,13 +1610,40 @@ function renderStructuredJSON(obj) {
   // Recommended action
   if (obj.recommended_action) {
     var box = document.createElement('div');
-    var accent = document.documentElement.style.getPropertyValue('--accent') || '#7c3aed';
-    box.style.cssText = 'border-left:3px solid ' + accent + ';padding:4px 10px;font-size:12px;color:#374151;';
-    box.innerHTML = '<strong>Recommended action:</strong> ' + escHtml(obj.recommended_action);
+    box.style.cssText = 'border-left:3px solid var(--accent);background:var(--brand-muted);border-radius:0 6px 6px 0;padding:6px 10px;font-size:12px;color:var(--gray-700);';
+    box.innerHTML = '<strong>Recommended action:</strong> ' + renderInlineMd(obj.recommended_action);
     container.appendChild(box);
   }
 
+  // Grounding — the agents cite their sources; show them
+  if (Array.isArray(obj.data_sources) && obj.data_sources.length) {
+    var src = document.createElement('div');
+    src.style.cssText = 'font-size:11px;color:var(--gray-500);';
+    src.textContent = 'Sources: ' + obj.data_sources.join(', ');
+    container.appendChild(src);
+  }
+
   return container;
+}
+
+/* Inline-only markdown (code, bold, italic) for structured-card strings —
+   agents write things like `vendor_pricing` in summaries. */
+function renderInlineMd(text) {
+  var s = escHtml(String(text));
+  s = s.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+  s = s.replace(/`([^`]+)`/g, '<code>$1</code>');
+  s = s.replace(/\*(.+?)\*/g, '<em>$1</em>');
+  return s;
+}
+
+function appendToolActivity(label) {
+  turnActivities.push(label);
+  var area = document.getElementById('messagesArea');
+  var div = document.createElement('div');
+  div.className = 'msg-tool-wrap live';
+  div.innerHTML = '<span class="msg-tool-text">⚙ ' + escHtml(label) + '</span>';
+  area.appendChild(div);
+  scrollBottom();
 }
 
 function appendSystemMsg(text) {
@@ -1262,6 +1663,17 @@ function appendError(text) {
   div.className = 'error-msg';
   div.textContent = text;
   wrap.appendChild(div);
+  if (lastUserMessage) {
+    var retry = document.createElement('button');
+    retry.className = 'retry-btn';
+    retry.textContent = '\u21bb Retry';
+    retry.onclick = function() {
+      wrap.remove();
+      setWaiting(false);
+      sendMessage(lastUserMessage);
+    };
+    wrap.appendChild(retry);
+  }
   area.appendChild(wrap);
   scrollBottom();
 }
@@ -1350,9 +1762,27 @@ function renderMd(text) {
     }).join('');
     return '<table><thead><tr>'+th+'</tr></thead><tbody>'+trs+'</tbody></table>';
   });
+  // Bulleted / numbered lists (agents respond in bulleted format)
+  s = s.replace(/(?:^|\n)((?:[-*] [^\n]+(?:\n|$))+)/g, function(_, block) {
+    var items = block.trim().split('\n').map(function(l) {
+      return '<li>' + l.replace(/^[-*] /, '') + '</li>';
+    }).join('');
+    return '\n<ul>' + items + '</ul>\n';
+  });
+  s = s.replace(/(?:^|\n)((?:\d+[.)] [^\n]+(?:\n|$))+)/g, function(_, block) {
+    var items = block.trim().split('\n').map(function(l) {
+      return '<li>' + l.replace(/^\d+[.)] /, '') + '</li>';
+    }).join('');
+    return '\n<ol>' + items + '</ol>\n';
+  });
+  // Headings render as bold lines; links open in a new tab
+  s = s.replace(/(?:^|\n)#{1,4}\s+(.+)/g, '\n<strong>$1</strong>');
+  s = s.replace(/\[([^\]]+)\]\((https?:[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
   s = s.replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>');
   s = s.replace(/\*(.+?)\*/g,'<em>$1</em>');
   s = s.replace(/`([^`]+)`/g,'<code>$1</code>');
+  // Don't let newlines hugging block elements become stray <br>s
+  s = s.replace(/\n(<\/?(?:ul|ol|table))/g, '$1').replace(/(<\/(?:ul|ol|table)>)\n/g, '$1');
   s = s.replace(/\n/g,'<br>');
   return s;
 }
@@ -1366,7 +1796,11 @@ function setWaiting(on) {
 
 function scrollBottom() {
   var a = document.getElementById('messagesArea');
-  a.scrollTop = a.scrollHeight;
+  if (nearBottom) {
+    a.scrollTop = a.scrollHeight;
+  } else {
+    document.getElementById('jumpLatest').classList.add('show');
+  }
 }
 
 function escHtml(s) {
@@ -1420,18 +1854,42 @@ window.copyUrl = function() {
 };
 
 /* ── EVENTS ──────────────────────────────────────── */
+function _resetInput(inp) {
+  inp.value = '';
+  inp.style.height = 'auto';
+}
+
 document.getElementById('sendBtn').addEventListener('click', function() {
   var inp = document.getElementById('msgInput');
   sendMessage(inp.value);
-  inp.value = '';
+  _resetInput(inp);
 });
 
 document.getElementById('msgInput').addEventListener('keydown', function(e) {
   if (e.key === 'Enter' && !e.shiftKey) {
     e.preventDefault();
     sendMessage(this.value);
-    this.value = '';
+    _resetInput(this);
   }
+});
+
+// Auto-grow the textarea up to its CSS max-height
+document.getElementById('msgInput').addEventListener('input', function() {
+  this.style.height = 'auto';
+  this.style.height = Math.min(this.scrollHeight, 132) + 'px';
+});
+
+// Only stick to the bottom while the user is already there
+document.getElementById('messagesArea').addEventListener('scroll', function() {
+  nearBottom = this.scrollHeight - this.scrollTop - this.clientHeight < 80;
+  if (nearBottom) document.getElementById('jumpLatest').classList.remove('show');
+});
+
+document.getElementById('jumpLatest').addEventListener('click', function() {
+  nearBottom = true;
+  this.classList.remove('show');
+  var a = document.getElementById('messagesArea');
+  a.scrollTop = a.scrollHeight;
 });
 
 var dd = document.getElementById('profileDropdown');

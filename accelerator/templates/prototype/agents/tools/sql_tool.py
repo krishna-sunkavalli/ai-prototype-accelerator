@@ -14,6 +14,8 @@ from typing import Any
 from azure.cosmos import CosmosClient, PartitionKey, exceptions as cosmos_exc
 from azure.identity import DefaultAzureCredential
 
+from agents.tools import activity
+
 logger = logging.getLogger(__name__)
 
 # Operation verbs that require user confirmation before execution
@@ -150,6 +152,7 @@ def run_sql_query(query: str, params: list | None = None, container: str | None 
                 for k, v in params.items()
             ]
 
+    activity.notify(f"Querying {container.replace('_', ' ')} data...")
     logger.info("run_sql_query | container=%s | query=%.120s | params=%s", container, cosmos_query, cosmos_params)
     try:
         return query_items(container, cosmos_query, cosmos_params)
