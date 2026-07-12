@@ -996,10 +996,12 @@ function applyContent() {
   // Split camelCase too, so "ConsumersOutagePilot" → "CO", not "C".
   var initials = agent.replace(/([a-z0-9])([A-Z])/g, '$1 $2')
     .split(/\s+/).map(function(w){return w[0]||'';}).join('').toUpperCase().slice(0,2);
-  // Generated badges (SVG data URIs from fill-templates.py) render edge-to-edge;
-  // uploaded raster logos render transparent on the brand tile (add the
-  // 'on-tile' class for logos that need a white backdrop to stay legible).
-  var logoClass = (logo.indexOf('data:image/svg+xml') === 0) ? ' class="generated"' : '';
+  // Generated badges (SVG data URIs from fill-templates.py) render edge-to-edge.
+  // Sourced company logos sit on the white tile by default — real-world marks
+  // are designed for light backgrounds and would drown on the brand tile.
+  var logoClass = '';
+  if (logo.indexOf('data:image/svg+xml') === 0) logoClass = ' class="generated"';
+  else if (logo) logoClass = ' class="on-tile"';
 
   // Topbar logo
   if (logo) {

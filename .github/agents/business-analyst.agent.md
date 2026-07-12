@@ -78,7 +78,7 @@ Do not ask follow-up MCQs for branding, framing, agents, data, documents, or dep
 
 Ask these topics **one at a time** in this order. Pre-fill sensible defaults from what you learned about the company — the user should only need to confirm or adjust.
 
-1. **Branding** — Suggest an agent display name that fits the company tone. Confirm primary color (guess from website if possible), accent color.
+1. **Branding** — Suggest an agent display name that fits the company tone. Confirm primary color (guess from website if possible), accent color. Also **discover the company's logo** while you have the website: pick the best brand-mark candidate in this order — `og:image` meta tag, largest `apple-touch-icon`, `link rel="icon"` (only when SVG or ≥64px), a header `<img>` whose src/alt/class mentions "logo". Prefer SVG or PNG at 128px or larger; ignore tiny favicons. Set `branding.logo_url` to the absolute URL, or `""` when nothing suitable exists (the build then generates a branded initials badge). The build downloads the file into the app's own assets at hydration time, so the URL only needs to be reachable during the build — never at demo time.
 2. **Use case refinement** — Briefly describe the problem and value. Ask if it's accurate.
 3. **Agents** — Propose 2–3 specialist agent names and roles that fit the use case. Confirm with user.
 4. **Data** — Propose the key structured data tables and fields. Confirm with user.
@@ -217,7 +217,7 @@ branding:
   primary_color: "#0078D4"
   accent_color: "#50E6FF"
   font_family: "Segoe UI, system-ui, sans-serif"
-  logo_url: ""
+  logo_url: ""            # absolute URL discovered on the website; "" -> generated initials badge
   welcome_message: <one-sentence welcome>
 
 use_case:
