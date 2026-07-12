@@ -179,14 +179,25 @@ def _fetch_remote_logo(url: str) -> str | None:
     return f"/assets/brand-logo{ext}"
 
 
-def _resolve_logo_url(logo_url: str, agent_name: str, primary: str, accent: str) -> str:
+def _resolve_logo_url(
+    logo_url: str, agent_name: str, primary: str, accent: str, website: str = ""
+) -> str:
     """Turn the spec's logo_url into what the app should actually serve.
 
+    - empty + website  → discover the logo on the company site, then download
     - empty            → generated initials badge (inline SVG data URI)
     - data: URI        → pass through (already inline)
     - /assets/... path → pass through (user placed the file manually)
     - http(s) URL      → download to local assets at build time; badge on failure
     """
+    if not logo_url and website:
+        # Zero-touch fallback: even when the BA never populated logo_url,
+        # the build discovers the mark itself from customer.website.
+        from logo_discovery import fetch_and_discover
+        discovered = fetch_and_discover(website)
+        if discovered:
+            print(f"  OK : logo discovered on {website} → {discovered}")
+            logo_url = discovered
     if not logo_url:
         return _build_inline_logo_svg(agent_name, primary, accent)
     if logo_url.startswith(("data:", "/assets/", "assets/")):
@@ -344,9 +355,12 @@ def build_substitutions(manifest: dict) -> dict[str, str]:  # noqa: C901
     accent_color = b["accentColor"]
     font_family = ascii_safe(b["fontFamily"])
     # Remote logo URLs are downloaded into the app's assets at build time;
-    # an empty logo_url falls back to a generated inline SVG badge whose
-    # colors match the spec palette.
-    logo_url = _resolve_logo_url(b["logoUrl"], agent_name, primary_color, accent_color)
+    # an empty logo_url triggers discovery on customer.website, then falls
+    # back to a generated inline SVG badge whose colors match the palette.
+    logo_url = _resolve_logo_url(
+        b["logoUrl"], agent_name, primary_color, accent_color,
+        website=c.get("website", ""),
+    )
     welcome_message = ascii_safe(b["welcomeMessage"])
     use_case_title = ascii_safe(b["useCaseTitle"])
     persona_name = ascii_safe(b["personaName"])

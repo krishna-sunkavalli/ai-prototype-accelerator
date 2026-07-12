@@ -55,6 +55,10 @@ def main() -> None:
     if not re.fullmatch(r"[a-z]+[a-z0-9]*", region):
         errors.append(f"deployment.azure_region invalid: {region!r}")
 
+    website = spec.get("customer", {}).get("website", "")
+    if website and not website.startswith(("http://", "https://")):
+        errors.append(f"customer.website must be an http(s) URL: {website!r}")
+
     # Routing keyword overlap check
     seen: dict[str, str] = {}
     overlaps: list[str] = []
@@ -172,6 +176,7 @@ def main() -> None:
             "slug": slug,
             "name": customer["name"],
             "industry": customer.get("industry", ""),
+            "website": customer.get("website", ""),
         },
         "deployment": {
             "environmentName": env_name,

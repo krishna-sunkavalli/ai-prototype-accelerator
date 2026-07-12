@@ -2,6 +2,7 @@ customer:
   name: Consumers Energy
   slug: consumers
   industry: Utilities - Electric and Natural Gas
+  website: https://www.consumersenergy.com
 
 branding:
   agent_name: ConsumersOutagePilot

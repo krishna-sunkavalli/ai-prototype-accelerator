@@ -36,6 +36,7 @@ SCHEMA: list[tuple[str, type | tuple[type, ...], bool]] = [
     ("customer", dict, True),
     ("customer.slug", str, True),
     ("customer.name", str, True),
+    ("customer.website", str, False),
 
     ("deployment", dict, True),
     ("deployment.environmentName", str, True),

@@ -78,7 +78,13 @@ Do not ask follow-up MCQs for branding, framing, agents, data, documents, or dep
 
 Ask these topics **one at a time** in this order. Pre-fill sensible defaults from what you learned about the company — the user should only need to confirm or adjust.
 
-1. **Branding** — Suggest an agent display name that fits the company tone. Confirm primary color (guess from website if possible), accent color. Also **discover the company's logo** while you have the website: pick the best brand-mark candidate in this order — (1) a header/nav `<img>` or inline `<svg>` whose src/alt/class mentions "logo" (this is almost always the real mark), (2) largest `apple-touch-icon`, (3) `link rel="icon"` (only when SVG or ≥64px), (4) `og:image` as a last resort — and only if it looks like a clean mark, since `og:image` is usually a social-share banner with photos/text, which would look wrong on the logo tile. Prefer SVG or PNG at 128px or larger; ignore tiny favicons. Resolve relative paths to absolute URLs. Set `branding.logo_url` to the absolute URL, or `""` when nothing suitable exists (the build then generates a branded initials badge). The build downloads the file into the app's own assets at hydration time, so the URL only needs to be reachable during the build — never at demo time.
+1. **Branding** — Suggest an agent display name that fits the company tone. Confirm primary color (guess from website if possible), accent color. Also **discover the company's logo** — run via `run_in_terminal`:
+
+   ```
+   py -3 accelerator/generators/logo_discovery.py <website-url>
+   ```
+
+   It deterministically picks the best brand-mark candidate (header logo → apple-touch-icon → large icon → `og:image` last, since that's usually a social banner) and prints an absolute URL. Set `branding.logo_url` to the printed URL; when it exits non-zero, leave `logo_url: ""`. Sanity check: if the printed URL is obviously a photo or banner rather than a mark, discard it and use `""`. Do not narrate the command. The build downloads the file into the app's own assets at hydration time — and if `logo_url` is empty but `customer.website` is set, the build re-runs this same discovery itself, so the logo path is fully zero-touch. Set `branding.logo_url` to the absolute URL, or `""` when nothing suitable exists (the build then generates a branded initials badge). The build downloads the file into the app's own assets at hydration time, so the URL only needs to be reachable during the build — never at demo time.
 2. **Use case refinement** — Briefly describe the problem and value. Ask if it's accurate.
 3. **Agents** — Propose 2–3 specialist agent names and roles that fit the use case. Confirm with user.
 4. **Data** — Propose the key structured data tables and fields. Confirm with user.
@@ -211,6 +217,7 @@ customer:
   name: <Company Name>
   slug: <lowercase-hyphens-only>
   industry: <industry string>
+  website: <the website URL from the invocation, e.g. https://contoso.com>
 
 branding:
   agent_name: <PascalCase display name>
@@ -299,6 +306,7 @@ mock_api:
 ### Schema invariants (enforced by `spec-validator.py` — bake these in before writing)
 
 - `customer.slug`: lowercase letters, digits, hyphens only — no spaces, no underscores.
+- `customer.website`: the http(s) URL from the invocation — always write it; it powers build-time logo discovery.
 - `deployment.azure_region`: must be the value confirmed in Step 2.6 (do not hard-code).
 - `tables[].partition_key`: must start with `/`.
 - `agents[].model`: must match a `model_deployments[].deployment_name`.
