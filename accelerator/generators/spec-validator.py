@@ -96,6 +96,28 @@ def main() -> None:
     rng = random.Random(checksum)
     suffix = "".join(rng.choice(string.ascii_lowercase + string.digits) for _ in range(4))
 
+    # Sticky suffix: when the previous manifest targeted the same product
+    # (same slug + environment), keep its suffix so derived resource names
+    # (Cosmos account, storage, ACR) stay stable across spec iterations.
+    # Without this, every spec edit re-derives the suffix from the checksum
+    # and the next deploy abandons the previously provisioned resources —
+    # which defeats incremental rebuild. A new slug or environment is a new
+    # product and gets a fresh suffix.
+    slug_now = spec["customer"]["slug"]
+    env_now = spec["deployment"]["environment_name"]
+    if MANIFEST_PATH.exists():
+        try:
+            prev = json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
+            prev_suffix = prev.get("deployment", {}).get("suffix", "")
+            if (
+                prev_suffix
+                and prev.get("customer", {}).get("slug") == slug_now
+                and prev.get("deployment", {}).get("environmentName") == env_now
+            ):
+                suffix = prev_suffix
+        except (json.JSONDecodeError, OSError):
+            pass
+
     storage_base = slug.replace("-", "")[:20]
     customer = spec["customer"]
     deployment = spec["deployment"]
@@ -252,7 +274,7 @@ def main() -> None:
         sys.exit(1)
 
     from sentinels import write as _write_sentinel  # noqa: E402
-    _write_sentinel(DONE_PATH, manifest["specChecksum"], [MANIFEST_PATH])
+    _write_sentinel(DONE_PATH, manifest["specChecksum"], [MANIFEST_PATH], manifest=manifest)
 
     print("[Step 1/7] Spec validation passed.")
     print(f"  Customer:  {customer['name']}")

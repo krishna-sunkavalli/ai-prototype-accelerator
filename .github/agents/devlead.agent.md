@@ -38,7 +38,9 @@ User-visible output rules (STRICT — no exceptions):
 3. Check if `generated/build-state/manifest.json` exists
 4. Scan `generated/build-state/*.done` files to determine what's already complete
 5. If `manifest.json` exists and the `specChecksum` in it matches the current spec.yaml → resume from the next missing node in the dependency graph
-6. If `manifest.json` exists but `specChecksum` differs → full rebuild (spec changed): clear every sentinel atomically by running `py -3 accelerator/scripts/clear-sentinels.py --all` so all steps re-run. Never delete sentinels by hand.
+6. If `manifest.json` exists but `specChecksum` differs → **incremental rebuild** (spec changed):
+   - If `customer.slug` or `deployment.environment_name` changed, this is a new product, not an iteration: run `py -3 accelerator/scripts/clear-sentinels.py --all` and do a full rebuild.
+   - Otherwise run step 1 first (spec-validator refreshes `manifest.json` and preserves the resource-name suffix for the same slug + environment), then run `py -3 accelerator/scripts/plan-rebuild.py` and rerun ONLY the steps it marks RERUN, respecting the dependency graph. Steps marked skip keep their ⏭️ row. This is the accelerator's headline behavior — a spec edit rebuilds only what the edit touches — so never fall back to clear-all for an ordinary spec change. Never delete sentinels by hand.
 7. If `manifest.json` missing → fresh build
 8. If user said "build resume" → resume missing work using the dependency graph below
 9. If user said "rebuild step N" → run `py -3 accelerator/scripts/clear-sentinels.py --step N` (plus `--step M` for any downstream step invalidated by the graph), then rerun and stop
@@ -92,7 +94,7 @@ When resuming, check sentinels against the graph:
 - Step 1 done and any of `02` through `06` missing → run only the missing members of the parallel-ready batch
 - Steps 2-6 all done and `07-hook-agent.done` missing → run step 7
 - Steps 1-7 all done → run preflight, then deployment
-- Sentinel staleness: a step counts as "done" only if `accelerator/generators/sentinels.is_stale()` returns False against the current `manifest.specChecksum` and the step's declared output files. Treat a stale sentinel (spec changed, outputs modified, or legacy plain-timestamp format) as a missing sentinel and rerun the step.
+- Sentinel staleness: a step counts as "done" only if `accelerator/generators/sentinels.is_stale()` returns False. Staleness is judged by the step's **input fingerprint** (the manifest sections that step consumes — see `STEP_INPUTS` in `sentinels.py`), its output hash, and format validity. Convenient CLI: `py -3 accelerator/generators/sentinels.py check --sentinel <path> --manifest generated/build-state/manifest.json` (exit 0 fresh, 1 stale). Treat a stale sentinel (inputs changed, outputs modified, or legacy plain-timestamp format) as a missing sentinel and rerun the step.
 - Never block a missing step in the batch on another step in that same batch
 
 When skipping a completed step, mark its row with the ⏭️ glyph in the status table; do not print any other text for skipped steps.
