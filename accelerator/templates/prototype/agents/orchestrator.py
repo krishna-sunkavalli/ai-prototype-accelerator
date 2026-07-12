@@ -170,6 +170,15 @@ def get_registered_agent_names() -> list:
     return list(_specialist_agents.keys())
 
 
+def get_agent_summaries() -> list:
+    """Display name + role per specialist — powers the welcome team cards."""
+    return [
+        {"name": _display_name(name), "role": config.get("role", "")}
+        for name, config in _agent_configs.items()
+        if name != "triage"
+    ]
+
+
 # ── Config loading ─────────────────────────────────────────────────────────────
 
 def _load_agent_configs() -> None:

@@ -177,7 +177,12 @@ def _parse_starter_questions(raw: str) -> list:
 
 @router.get("/config")
 async def config():
+    try:
+        agents_summary = orchestrator.get_agent_summaries()
+    except Exception:
+        agents_summary = []
     return {
+        "AGENTS": agents_summary,
         "CUSTOMER_NAME": os.environ.get("CUSTOMER_NAME", ""),
         "AGENT_NAME": os.environ.get("AGENT_NAME", "AI Assistant"),
         "PRIMARY_COLOR": os.environ.get("PRIMARY_COLOR", "#0078D4"),

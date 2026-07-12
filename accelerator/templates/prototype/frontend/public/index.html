@@ -13,6 +13,7 @@
   --brand-hover: #4338ca;
   --brand-light: #dcdafa;
   --brand-text:  #433cc3;
+  --brand-bubble:#f4f3fd;
   --brand-muted: rgba(99,102,241,0.08);
   --accent:      #7c3aed;
 
@@ -388,6 +389,40 @@ body {
   animation: fadeUp 0.35s 0.15s ease both;
 }
 
+.team-row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 26px;
+  max-width: 780px;
+  animation: fadeUp 0.35s 0.2s ease both;
+}
+
+.team-card {
+  background: #fff;
+  border: 1px solid var(--gray-200);
+  border-top: 3px solid var(--brand);
+  border-radius: 12px;
+  padding: 12px 16px;
+  max-width: 236px;
+  text-align: left;
+  box-shadow: var(--shadow-sm);
+}
+
+.team-card-name {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--gray-800);
+  margin-bottom: 3px;
+}
+
+.team-card-role {
+  font-size: 0.7rem;
+  color: var(--gray-500);
+  line-height: 1.5;
+}
+
 @keyframes fadeUp {
   from { opacity: 0; transform: translateY(6px); }
   to   { opacity: 1; transform: translateY(0); }
@@ -469,7 +504,7 @@ body {
 }
 
 .msg-row.agent .msg-bubble {
-  background: #fff;
+  background: var(--brand-bubble);
   color: var(--gray-800);
   border: 1px solid var(--gray-200);
   border-left: 3px solid var(--accent);
@@ -485,6 +520,103 @@ body {
   border-bottom-right-radius: 4px;
   box-shadow: 0 2px 8px rgba(15,23,42,.15);
 }
+
+/* Agent name inside the bubble header */
+.msg-bubble-agent-name {
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: var(--brand-text);
+  margin-bottom: 4px;
+  letter-spacing: 0.01em;
+}
+
+/* Meta line under a message: steps toggle, latency, timestamp, copy */
+.msg-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 0.66rem;
+  color: var(--gray-400);
+  padding: 3px 6px 0;
+}
+
+.msg-meta.user { justify-content: flex-end; }
+
+.msg-steps {
+  cursor: pointer;
+  color: var(--gray-500);
+  font-weight: 600;
+  background: none;
+  border: none;
+  font-family: inherit;
+  font-size: inherit;
+  padding: 0;
+}
+
+.msg-steps:hover { color: var(--brand-text); }
+
+.msg-steps-list {
+  display: none;
+  font-size: 0.7rem;
+  color: var(--gray-500);
+  font-style: italic;
+  padding: 4px 6px 0;
+  line-height: 1.75;
+}
+
+.msg-steps-list.open { display: block; }
+
+.msg-copy {
+  opacity: 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+  font-size: inherit;
+  font-family: inherit;
+  color: var(--gray-400);
+  padding: 0;
+  transition: opacity .15s, color .15s;
+}
+
+.msg-wrap:hover .msg-copy, .msg-copy:focus-visible { opacity: 1; }
+.msg-copy:hover { color: var(--brand-text); }
+
+.retry-btn {
+  margin-top: 8px;
+  background: #fff;
+  border: 1px solid var(--brand);
+  color: var(--brand-text);
+  border-radius: var(--radius);
+  padding: 5px 14px;
+  font-size: 0.76rem;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.retry-btn:hover { background: var(--brand); color: #fff; }
+
+/* Jump-to-latest pill when the user has scrolled up */
+.jump-latest {
+  display: none;
+  position: fixed;
+  bottom: 96px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--gray-900);
+  color: #fff;
+  border: none;
+  border-radius: 999px;
+  padding: 7px 16px;
+  font-size: 0.76rem;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+  z-index: 250;
+  box-shadow: var(--shadow-lg);
+}
+
+.jump-latest.show { display: block; }
 
 /* System / handoff */
 .msg-system-wrap {
@@ -549,6 +681,13 @@ body {
   border-bottom-left-radius: 4px;
   padding: 12px 16px;
   box-shadow: var(--shadow-sm);
+}
+
+.typing-label {
+  font-size: 0.72rem;
+  color: var(--gray-500);
+  font-style: italic;
+  margin-right: 6px;
 }
 
 .typing-dot {
@@ -652,6 +791,7 @@ body {
   padding-left: 20px;
 }
 .msg-bubble li { margin: 3px 0; }
+.msg-bubble a { color: var(--brand-text); text-decoration: underline; }
 .msg-bubble li::marker { color: var(--brand); }
 .msg-bubble strong { font-weight: 600; }
 .msg-bubble em { font-style: italic; color: var(--gray-600); }
@@ -737,8 +877,12 @@ body {
 .msg-input {
   flex: 1;
   border: 1.5px solid var(--gray-200);
-  border-radius: 12px;
+  border-radius: 22px;
   padding: 12px 18px;
+  resize: none;
+  line-height: 1.5;
+  max-height: 132px;
+  overflow-y: auto;
   font-size: 0.875rem;
   font-family: inherit;
   color: var(--gray-800);
@@ -761,7 +905,7 @@ body {
 .send-btn {
   width: 44px;
   height: 44px;
-  border-radius: 12px;
+  border-radius: 50%;
   background: var(--brand);
   border: none;
   color: #fff;
@@ -806,6 +950,37 @@ body {
 
 .hidden { display: none !important; }
 
+/* ── ACCESSIBILITY ───────────────────────────────── */
+.starter-chip:focus-visible,
+.suggestion-chip:focus-visible,
+.send-btn:focus-visible,
+.msg-input:focus-visible,
+.profile-trigger:focus-visible,
+.retry-btn:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ── SMALL SCREENS ───────────────────────────────── */
+@media (max-width: 640px) {
+  .topbar { padding: 0 14px; height: 58px; }
+  .topbar-logo { width: 38px; height: 38px; }
+  .profile-info { display: none; }
+  .msg-wrap, .msg-system-wrap { padding-left: 14px; padding-right: 14px; }
+  .msg-tool-wrap { padding-left: 52px; padding-right: 14px; }
+  .msg-bubble, .msg-col { max-width: 84%; }
+  .starters-bar { padding: 12px 14px 0; }
+  .input-row { padding: 12px 14px 14px; }
+  .welcome-title { font-size: 1.3rem; }
+}
+
 /* ── BOOT VEIL ───────────────────────────────────── */
 /* Covers the page until /config resolves and the customer theme is applied,
    so the hardcoded fallback palette above never flashes on screen. */
@@ -841,7 +1016,7 @@ body {
 <body>
 
 <!-- Boot veil — removed once the customer theme is applied -->
-<div id="bootVeil"><div class="boot-spinner"></div></div>
+<div id="bootVeil" role="status" aria-label="Loading"><div class="boot-spinner"></div></div>
 
 <!-- Topbar -->
 <div class="topbar">
@@ -859,7 +1034,7 @@ body {
     <button class="reset-btn" id="resetBtn" onclick="resetData()">↺ Reset Data</button>
 
     <div class="profile-dropdown" id="profileDropdown">
-      <button class="profile-trigger" id="profileTrigger">
+      <button class="profile-trigger" id="profileTrigger" aria-label="Profile menu">
         <div class="profile-avatar" id="profileAvatar">AK</div>
         <div class="profile-info">
           <div class="profile-name" id="profileName">User</div>
@@ -892,6 +1067,7 @@ body {
     <div class="welcome-eyebrow" id="welcomeEyebrow" style="display:none"></div>
     <h1 class="welcome-title" id="welcomeTitle">Welcome</h1>
     <p class="welcome-desc" id="welcomeDesc">Your AI assistant is ready.</p>
+    <div class="team-row" id="teamRow"></div>
   </div>
 
   <!-- Messages -->
@@ -901,14 +1077,14 @@ body {
   <div class="bottom-area">
     <div class="starters-bar" id="startersBar"></div>
     <div class="input-row">
-      <input
+      <textarea
         class="msg-input"
         id="msgInput"
-        type="text"
+        rows="1"
         placeholder="Ask a question..."
-        autocomplete="off"
-      />
-      <button class="send-btn" id="sendBtn" title="Send">
+        aria-label="Ask a question"
+      ></textarea>
+      <button class="send-btn" id="sendBtn" title="Send" aria-label="Send message">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
           <line x1="22" y1="2" x2="11" y2="13"></line>
           <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
@@ -918,6 +1094,7 @@ body {
   </div>
 </div>
 
+<button class="jump-latest" id="jumpLatest">&#8595; Latest</button>
 <div class="toast" id="toast"></div>
 
 <script>
@@ -931,6 +1108,11 @@ var reconnectAttempts = 0;
 var config = {};
 var currentAgentBubble = null;
 var startersHidden = false;
+var lastUserMessage = '';
+var turnActivities = [];
+var turnStartTs = 0;
+var typingEl = null;
+var nearBottom = true;
 
 /* ── CONFIG ─────────────────────────────────────── */
 async function loadConfig() {
@@ -971,6 +1153,7 @@ function applyTheme() {
   r.style.setProperty('--brand',       primary);
   r.style.setProperty('--brand-hover', darken(primary, 0.12));
   r.style.setProperty('--brand-light', lighten(primary, 0.8));
+  r.style.setProperty('--brand-bubble', lighten(primary, 0.94));
   r.style.setProperty('--brand-text',  darken(primary, 0.15));
   r.style.setProperty('--brand-muted', hexRgba(primary, 0.08));
   r.style.setProperty('--accent',      accent);
@@ -1026,6 +1209,17 @@ function applyContent() {
     eyebrow.textContent = config.USE_CASE_TITLE;
     eyebrow.style.display = 'block';
   }
+
+  // Meet-the-team cards — the specialists are the product story
+  var teamRow = document.getElementById('teamRow');
+  teamRow.innerHTML = '';
+  (config.AGENTS || []).slice(0, 4).forEach(function(a) {
+    var card = document.createElement('div');
+    card.className = 'team-card';
+    card.innerHTML = '<div class="team-card-name">' + escHtml(a.name || '') + '</div>'
+      + '<div class="team-card-role">' + escHtml((a.role || '').slice(0, 110)) + '</div>';
+    teamRow.appendChild(card);
+  });
 
   // Profile
   var pName = config.PERSONA_NAME || 'User';
@@ -1084,6 +1278,18 @@ function sendMessage(text) {
   text = (text||'').trim();
   if (!text || isWaiting) return;
 
+  // Never swallow a message into a closed socket: reconnect is already
+  // scheduled, and entering the waiting state would lock the input forever.
+  if (!ws || ws.readyState !== 1) {
+    showToast('Reconnecting — please try again in a moment');
+    return;
+  }
+
+  lastUserMessage = text;
+  turnActivities = [];
+  turnStartTs = Date.now();
+  nearBottom = true;
+
   // First message — hide welcome, show messages
   if (!startersHidden) {
     document.getElementById('welcomeScreen').classList.add('hidden');
@@ -1106,6 +1312,7 @@ function handleMsg(msg) {
   var t = msg.type;
 
   if (t === 'text') {
+    hideTyping();
     if (!currentAgentBubble) currentAgentBubble = startAgentBubble(msg.agent || config.AGENT_NAME);
     appendToken(currentAgentBubble, msg.content || '');
     if (msg.done) {
@@ -1116,6 +1323,7 @@ function handleMsg(msg) {
 
   } else if (t === 'handoff') {
     appendSystemMsg('Routing to ' + (msg.agent || 'specialist') + '...');
+    showTyping(msg.agent || '');
 
   } else if (t === 'tool_activity') {
     appendToolActivity(msg.label || 'Working...');
@@ -1129,11 +1337,13 @@ function handleMsg(msg) {
     setWaiting(false);
 
   } else if (t === 'error') {
-    appendError(msg.message || 'An error occurred.');
+    hideTyping();
+    appendError(msg.content || msg.message || 'An error occurred.');
     setWaiting(false);
     currentAgentBubble = null;
 
   } else if (t === 'done') {
+    hideTyping();
     setWaiting(false);
     currentAgentBubble = null;
   }
@@ -1153,32 +1363,46 @@ function appendUserMsg(text) {
   bbl.textContent = text;
   row.appendChild(bbl);
   wrap.appendChild(row);
+
+  var meta = document.createElement('div');
+  meta.className = 'msg-meta user';
+  meta.textContent = new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  wrap.appendChild(meta);
+
   area.appendChild(wrap);
   scrollBottom();
+}
+
+function showTyping(agentName) {
+  hideTyping();
+  var area = document.getElementById('messagesArea');
+  var wrap = document.createElement('div');
+  wrap.className = 'typing-wrap';
+  wrap.setAttribute('role', 'status');
+  var tb = document.createElement('div');
+  tb.className = 'typing-bubble';
+  tb.innerHTML = (agentName ? '<span class="typing-label">' + escHtml(agentName) + ' is thinking</span>' : '')
+    + '<div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div>';
+  wrap.appendChild(tb);
+  area.appendChild(wrap);
+  typingEl = wrap;
+  scrollBottom();
+}
+
+function hideTyping() {
+  if (typingEl) { typingEl.remove(); typingEl = null; }
 }
 
 function startAgentBubble(agentName) {
   var area = document.getElementById('messagesArea');
   var init = (agentName||'A')[0].toUpperCase();
-
-  // Typing bubble
-  var typingWrap = document.createElement('div');
-  typingWrap.className = 'typing-wrap';
-  var tb = document.createElement('div');
-  tb.className = 'typing-bubble';
-  tb.innerHTML = '<div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div>';
-  typingWrap.appendChild(tb);
-  area.appendChild(typingWrap);
-  scrollBottom();
-
-  return { area: area, typingWrap: typingWrap, wrap: null, row: null, bubble: null, init: init, agentName: agentName || '', rawText: '', rendered: false };
+  return { area: area, wrap: null, row: null, bubble: null, content: null, init: init, agentName: agentName || '', rawText: '', rendered: false };
 }
 
 function appendToken(handle, token) {
   if (!handle) return;
   if (!handle.rendered) {
-    // Replace typing with real bubble
-    handle.typingWrap.remove();
+    hideTyping();
 
     var wrap = document.createElement('div');
     wrap.className = 'msg-wrap';
@@ -1190,18 +1414,21 @@ function appendToken(handle, token) {
     av.className = 'msg-avatar';
     av.textContent = handle.init;
 
+    // Bubble = name header + content; content re-renders per token so the
+    // header survives streaming updates.
     var bbl = document.createElement('div');
     bbl.className = 'msg-bubble';
-
-    // Name label above the bubble — makes it visible which specialist answered
-    var col = document.createElement('div');
-    col.className = 'msg-col';
     if (handle.agentName) {
       var nameEl = document.createElement('div');
-      nameEl.className = 'msg-agent-name';
+      nameEl.className = 'msg-bubble-agent-name';
       nameEl.textContent = handle.agentName;
-      col.appendChild(nameEl);
+      bbl.appendChild(nameEl);
     }
+    var contentEl = document.createElement('div');
+    bbl.appendChild(contentEl);
+
+    var col = document.createElement('div');
+    col.className = 'msg-col';
     col.appendChild(bbl);
 
     row.appendChild(av);
@@ -1209,19 +1436,20 @@ function appendToken(handle, token) {
     wrap.appendChild(row);
     handle.area.appendChild(wrap);
 
-    handle.wrap   = wrap;
-    handle.row    = row;
-    handle.bubble = bbl;
+    handle.wrap    = wrap;
+    handle.row     = row;
+    handle.bubble  = bbl;
+    handle.content = contentEl;
     handle.rendered = true;
   }
   handle.rawText += token;
-  handle.bubble.innerHTML = renderMd(handle.rawText);
+  handle.content.innerHTML = renderMd(handle.rawText);
   scrollBottom();
 }
 
 function finalizeAgentBubble(handle) {
   if (!handle || !handle.rendered) {
-    if (handle && handle.typingWrap) handle.typingWrap.remove();
+    hideTyping();
     return;
   }
   // Try to parse raw text as structured JSON and render as cards/table
@@ -1240,9 +1468,57 @@ function finalizeAgentBubble(handle) {
     }
   }
   if (parsed && typeof parsed === 'object') {
-    handle.bubble.innerHTML = '';
-    handle.bubble.appendChild(renderStructuredJSON(parsed));
+    handle.content.innerHTML = '';
+    handle.content.appendChild(renderStructuredJSON(parsed));
   }
+  attachAgentMeta(handle);
+}
+
+/* Meta line under a finished answer: reasoning-steps toggle, latency,
+   timestamp, copy — turns streamed status noise into an inspectable trail. */
+function attachAgentMeta(handle) {
+  var col = handle.row.querySelector('.msg-col');
+  if (!col) return;
+
+  var meta = document.createElement('div');
+  meta.className = 'msg-meta';
+
+  var stepsList = null;
+  if (turnActivities.length) {
+    var steps = document.createElement('button');
+    steps.className = 'msg-steps';
+    steps.textContent = '\u2699 ' + turnActivities.length + ' step' + (turnActivities.length > 1 ? 's' : '');
+    stepsList = document.createElement('div');
+    stepsList.className = 'msg-steps-list';
+    stepsList.innerHTML = turnActivities.map(function(a){ return '\u2699 ' + escHtml(a); }).join('<br>');
+    steps.onclick = function() { stepsList.classList.toggle('open'); };
+    meta.appendChild(steps);
+  }
+
+  if (turnStartTs) {
+    var lat = document.createElement('span');
+    lat.textContent = ((Date.now() - turnStartTs) / 1000).toFixed(1) + 's';
+    meta.appendChild(lat);
+  }
+
+  var time = document.createElement('span');
+  time.textContent = new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  meta.appendChild(time);
+
+  var copy = document.createElement('button');
+  copy.className = 'msg-copy';
+  copy.textContent = '\u2398 Copy';
+  copy.setAttribute('aria-label', 'Copy response');
+  copy.onclick = function() {
+    navigator.clipboard.writeText(handle.bubble.innerText).then(function(){ showToast('Copied'); });
+  };
+  meta.appendChild(copy);
+
+  col.appendChild(meta);
+  if (stepsList) col.appendChild(stepsList);
+
+  // The live status lines collapse into the steps toggle
+  document.querySelectorAll('.msg-tool-wrap.live').forEach(function(el){ el.remove(); });
 }
 
 function renderStructuredJSON(obj) {
@@ -1279,7 +1555,7 @@ function renderStructuredJSON(obj) {
     keys.forEach(function(k) {
       var th = document.createElement('th');
       th.style.cssText = 'text-align:left;padding:5px 9px;background:var(--gray-50);border:1px solid var(--gray-200);font-weight:600;font-size:10px;color:var(--gray-600);text-transform:uppercase;letter-spacing:0.04em;white-space:nowrap;';
-      th.textContent = k.replace(/_/g,' ');
+      th.textContent = k.replace(/_/g,' ').replace(/([a-z0-9])([A-Z])/g,'$1 $2');
       hr.appendChild(th);
     });
     thead.appendChild(hr);
@@ -1294,6 +1570,13 @@ function renderStructuredJSON(obj) {
         var val = item[k];
         if (typeof val === 'number' && k.indexOf('balance') !== -1) {
           td.textContent = '$' + val.toLocaleString('en-US', {maximumFractionDigits:0});
+          td.style.textAlign = 'right';
+        } else if (typeof val === 'number') {
+          td.textContent = val.toLocaleString('en-US');
+          td.style.textAlign = 'right';
+        } else if (typeof val === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(val)) {
+          var d = new Date(val);
+          td.textContent = isNaN(d) ? val : d.toLocaleString([], {month:'short', day:'numeric', hour:'numeric', minute:'2-digit'});
         } else {
           td.textContent = val !== null && val !== undefined ? val : '—';
         }
@@ -1354,9 +1637,10 @@ function renderInlineMd(text) {
 }
 
 function appendToolActivity(label) {
+  turnActivities.push(label);
   var area = document.getElementById('messagesArea');
   var div = document.createElement('div');
-  div.className = 'msg-tool-wrap';
+  div.className = 'msg-tool-wrap live';
   div.innerHTML = '<span class="msg-tool-text">⚙ ' + escHtml(label) + '</span>';
   area.appendChild(div);
   scrollBottom();
@@ -1379,6 +1663,17 @@ function appendError(text) {
   div.className = 'error-msg';
   div.textContent = text;
   wrap.appendChild(div);
+  if (lastUserMessage) {
+    var retry = document.createElement('button');
+    retry.className = 'retry-btn';
+    retry.textContent = '\u21bb Retry';
+    retry.onclick = function() {
+      wrap.remove();
+      setWaiting(false);
+      sendMessage(lastUserMessage);
+    };
+    wrap.appendChild(retry);
+  }
   area.appendChild(wrap);
   scrollBottom();
 }
@@ -1480,6 +1775,9 @@ function renderMd(text) {
     }).join('');
     return '\n<ol>' + items + '</ol>\n';
   });
+  // Headings render as bold lines; links open in a new tab
+  s = s.replace(/(?:^|\n)#{1,4}\s+(.+)/g, '\n<strong>$1</strong>');
+  s = s.replace(/\[([^\]]+)\]\((https?:[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
   s = s.replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>');
   s = s.replace(/\*(.+?)\*/g,'<em>$1</em>');
   s = s.replace(/`([^`]+)`/g,'<code>$1</code>');
@@ -1498,7 +1796,11 @@ function setWaiting(on) {
 
 function scrollBottom() {
   var a = document.getElementById('messagesArea');
-  a.scrollTop = a.scrollHeight;
+  if (nearBottom) {
+    a.scrollTop = a.scrollHeight;
+  } else {
+    document.getElementById('jumpLatest').classList.add('show');
+  }
 }
 
 function escHtml(s) {
@@ -1552,18 +1854,42 @@ window.copyUrl = function() {
 };
 
 /* ── EVENTS ──────────────────────────────────────── */
+function _resetInput(inp) {
+  inp.value = '';
+  inp.style.height = 'auto';
+}
+
 document.getElementById('sendBtn').addEventListener('click', function() {
   var inp = document.getElementById('msgInput');
   sendMessage(inp.value);
-  inp.value = '';
+  _resetInput(inp);
 });
 
 document.getElementById('msgInput').addEventListener('keydown', function(e) {
   if (e.key === 'Enter' && !e.shiftKey) {
     e.preventDefault();
     sendMessage(this.value);
-    this.value = '';
+    _resetInput(this);
   }
+});
+
+// Auto-grow the textarea up to its CSS max-height
+document.getElementById('msgInput').addEventListener('input', function() {
+  this.style.height = 'auto';
+  this.style.height = Math.min(this.scrollHeight, 132) + 'px';
+});
+
+// Only stick to the bottom while the user is already there
+document.getElementById('messagesArea').addEventListener('scroll', function() {
+  nearBottom = this.scrollHeight - this.scrollTop - this.clientHeight < 80;
+  if (nearBottom) document.getElementById('jumpLatest').classList.remove('show');
+});
+
+document.getElementById('jumpLatest').addEventListener('click', function() {
+  nearBottom = true;
+  this.classList.remove('show');
+  var a = document.getElementById('messagesArea');
+  a.scrollTop = a.scrollHeight;
 });
 
 var dd = document.getElementById('profileDropdown');
