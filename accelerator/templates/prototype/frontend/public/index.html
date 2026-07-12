@@ -5,8 +5,6 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title></title>
 <link rel="icon" id="favicon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23cbd5e1'/%3E%3C/svg%3E">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -46,7 +44,9 @@ html, body {
 }
 
 body {
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  /* System stack only — no webfont request, so typography never flashes or
+     degrades on restricted networks. config.FONT_FAMILY overrides at runtime. */
+  font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, 'Inter', Roboto, sans-serif;
   background: var(--gray-100);
   color: var(--gray-800);
   display: flex;
@@ -58,6 +58,7 @@ body {
 .topbar {
   background: #fff;
   border-bottom: 1px solid var(--gray-200);
+  box-shadow: var(--shadow-sm);
   padding: 0 28px;
   height: 68px;
   display: flex;
@@ -131,7 +132,7 @@ body {
 .topbar-subtitle {
   font-size: 0.63rem;
   font-weight: 500;
-  color: var(--gray-400);
+  color: var(--gray-500);
   letter-spacing: 0.01em;
 }
 
@@ -218,7 +219,7 @@ body {
 
 .profile-role {
   font-size: 0.64rem;
-  color: var(--gray-400);
+  color: var(--gray-500);
   font-weight: 500;
 }
 
@@ -258,7 +259,7 @@ body {
 }
 
 .profile-menu-name { font-size: 0.82rem; font-weight: 600; color: var(--gray-800); }
-.profile-menu-sub  { font-size: 0.68rem; color: var(--gray-400); margin-top: 2px; }
+.profile-menu-sub  { font-size: 0.68rem; color: var(--gray-500); margin-top: 2px; }
 
 .profile-menu-item {
   display: flex;
@@ -310,6 +311,19 @@ body {
   justify-content: center;
   padding: 0 24px 40px;
   text-align: center;
+  /* Single-color brand wash — adds brand presence to the empty state
+     without blending two colors (which muddies real palettes). */
+  background: radial-gradient(620px 320px at 50% 42%, var(--brand-muted), transparent 70%);
+}
+
+.welcome-eyebrow {
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: var(--brand-text);
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  margin-bottom: 12px;
+  animation: fadeUp 0.35s 0.05s ease both;
 }
 
 .welcome-logo {
@@ -368,7 +382,7 @@ body {
 
 .welcome-desc {
   font-size: 0.9rem;
-  color: var(--gray-500);
+  color: var(--gray-600);
   line-height: 1.65;
   max-width: 480px;
   animation: fadeUp 0.35s 0.15s ease both;
@@ -396,6 +410,21 @@ body {
 .messages-area::-webkit-scrollbar { width: 4px; }
 .messages-area::-webkit-scrollbar-track { background: transparent; }
 .messages-area::-webkit-scrollbar-thumb { background: var(--gray-300); border-radius: 2px; }
+
+/* Readable centered column — on wide screens the conversation and input
+   stay a comfortable measure instead of stretching edge-to-edge. */
+.msg-wrap,
+.msg-system-wrap,
+.msg-tool-wrap,
+.typing-wrap,
+.suggestions-row,
+.starters-bar,
+.input-row {
+  width: 100%;
+  max-width: 1016px;
+  margin-left: auto;
+  margin-right: auto;
+}
 
 .msg-wrap {
   padding: 0 28px;
@@ -470,7 +499,7 @@ body {
 
 .msg-system-text {
   font-size: 0.71rem;
-  color: var(--gray-400);
+  color: var(--gray-500);
   font-style: italic;
   white-space: nowrap;
 }
@@ -483,7 +512,7 @@ body {
 
 .msg-tool-text {
   font-size: 0.7rem;
-  color: var(--gray-400);
+  color: var(--gray-500);
   font-style: italic;
 }
 
@@ -500,7 +529,7 @@ body {
 .msg-agent-name {
   font-size: 0.66rem;
   font-weight: 600;
-  color: var(--gray-400);
+  color: var(--gray-500);
   letter-spacing: 0.02em;
   padding-left: 4px;
 }
@@ -618,6 +647,12 @@ body {
 }
 
 /* Markdown */
+.msg-bubble ul, .msg-bubble ol {
+  margin: 6px 0;
+  padding-left: 20px;
+}
+.msg-bubble li { margin: 3px 0; }
+.msg-bubble li::marker { color: var(--brand); }
 .msg-bubble strong { font-weight: 600; }
 .msg-bubble em { font-style: italic; color: var(--gray-600); }
 .msg-row.user .msg-bubble em { color: rgba(255,255,255,.8); }
@@ -854,6 +889,7 @@ body {
     <div class="welcome-logo" id="welcomeLogo">
       <span id="welcomeLogoText">AI</span>
     </div>
+    <div class="welcome-eyebrow" id="welcomeEyebrow" style="display:none"></div>
     <h1 class="welcome-title" id="welcomeTitle">Welcome</h1>
     <p class="welcome-desc" id="welcomeDesc">Your AI assistant is ready.</p>
   </div>
@@ -957,7 +993,9 @@ function applyContent() {
   var agent    = config.AGENT_NAME    || 'Assistant';
   var customer = config.CUSTOMER_NAME || 'AI Prototype';
   var logo     = config.LOGO_URL      || '';
-  var initials = agent.split(' ').map(function(w){return w[0]||'';}).join('').toUpperCase().slice(0,2);
+  // Split camelCase too, so "ConsumersOutagePilot" → "CO", not "C".
+  var initials = agent.replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .split(/\s+/).map(function(w){return w[0]||'';}).join('').toUpperCase().slice(0,2);
   // Generated badges (SVG data URIs from fill-templates.py) render edge-to-edge;
   // uploaded raster logos render transparent on the brand tile (add the
   // 'on-tile' class for logos that need a white backdrop to stay legible).
@@ -979,6 +1017,13 @@ function applyContent() {
   }
   document.getElementById('welcomeTitle').textContent = 'Welcome to ' + agent;
   document.getElementById('welcomeDesc').textContent  = config.WELCOME_MESSAGE || '';
+
+  // Use-case eyebrow above the welcome title
+  var eyebrow = document.getElementById('welcomeEyebrow');
+  if (config.USE_CASE_TITLE) {
+    eyebrow.textContent = config.USE_CASE_TITLE;
+    eyebrow.style.display = 'block';
+  }
 
   // Profile
   var pName = config.PERSONA_NAME || 'User';
@@ -1200,12 +1245,12 @@ function finalizeAgentBubble(handle) {
 
 function renderStructuredJSON(obj) {
   var container = document.createElement('div');
-  container.style.cssText = 'display:flex;flex-direction:column;gap:10px;font-size:13px;color:#1f2937;';
+  container.style.cssText = 'display:flex;flex-direction:column;gap:10px;font-size:13px;color:var(--gray-700);';
 
   // Summary
   if (obj.summary) {
     var p = document.createElement('p');
-    p.style.cssText = 'font-weight:600;color:#111827;margin:0;';
+    p.style.cssText = 'font-weight:600;color:var(--gray-900);margin:0;';
     p.textContent = obj.summary;
     container.appendChild(p);
   }
@@ -1226,12 +1271,12 @@ function renderStructuredJSON(obj) {
     var tableWrap = document.createElement('div');
     tableWrap.style.cssText = 'overflow-x:auto;';
     var table = document.createElement('table');
-    table.style.cssText = 'width:100%;border-collapse:collapse;font-size:11px;';
+    table.style.cssText = 'width:100%;border-collapse:collapse;font-size:12px;';
     var thead = document.createElement('thead');
     var hr = document.createElement('tr');
     keys.forEach(function(k) {
       var th = document.createElement('th');
-      th.style.cssText = 'text-align:left;padding:4px 8px;background:#f3f4f6;border:1px solid #e5e7eb;font-weight:600;color:#6b7280;white-space:nowrap;';
+      th.style.cssText = 'text-align:left;padding:5px 9px;background:var(--gray-50);border:1px solid var(--gray-200);font-weight:600;font-size:10px;color:var(--gray-600);text-transform:uppercase;letter-spacing:0.04em;white-space:nowrap;';
       th.textContent = k.replace(/_/g,' ');
       hr.appendChild(th);
     });
@@ -1240,10 +1285,10 @@ function renderStructuredJSON(obj) {
     var tbody = document.createElement('tbody');
     items.forEach(function(item, i) {
       var row = document.createElement('tr');
-      row.style.background = i % 2 === 0 ? '#fff' : '#f9fafb';
+      row.style.background = i % 2 === 0 ? '#fff' : 'var(--gray-50)';
       keys.forEach(function(k) {
         var td = document.createElement('td');
-        td.style.cssText = 'padding:4px 8px;border:1px solid #e5e7eb;';
+        td.style.cssText = 'padding:5px 9px;border:1px solid var(--gray-200);color:var(--gray-700);';
         var val = item[k];
         if (typeof val === 'number' && k.indexOf('balance') !== -1) {
           td.textContent = '$' + val.toLocaleString('en-US', {maximumFractionDigits:0});
@@ -1267,7 +1312,7 @@ function renderStructuredJSON(obj) {
     pillRow.style.cssText = 'display:flex;flex-wrap:wrap;gap:6px;';
     metrics.forEach(function(k) {
       var pill = document.createElement('span');
-      pill.style.cssText = 'background:#f3f4f6;border-radius:999px;padding:2px 10px;font-size:11px;color:#374151;';
+      pill.style.cssText = 'background:var(--brand-light);border-radius:999px;padding:3px 11px;font-size:11px;font-weight:500;color:var(--brand-text);';
       var val = obj[k];
       if (typeof val === 'number' && k.indexOf('exposure') !== -1) val = '$' + val.toLocaleString('en-US', {maximumFractionDigits:0});
       if (typeof val === 'number' && k === 'confidence') val = (val * 100).toFixed(0) + '%';
@@ -1280,8 +1325,7 @@ function renderStructuredJSON(obj) {
   // Recommended action
   if (obj.recommended_action) {
     var box = document.createElement('div');
-    var accent = document.documentElement.style.getPropertyValue('--accent') || '#7c3aed';
-    box.style.cssText = 'border-left:3px solid ' + accent + ';padding:4px 10px;font-size:12px;color:#374151;';
+    box.style.cssText = 'border-left:3px solid var(--accent);background:var(--brand-muted);border-radius:0 6px 6px 0;padding:6px 10px;font-size:12px;color:var(--gray-700);';
     box.innerHTML = '<strong>Recommended action:</strong> ' + escHtml(obj.recommended_action);
     container.appendChild(box);
   }
@@ -1403,9 +1447,24 @@ function renderMd(text) {
     }).join('');
     return '<table><thead><tr>'+th+'</tr></thead><tbody>'+trs+'</tbody></table>';
   });
+  // Bulleted / numbered lists (agents respond in bulleted format)
+  s = s.replace(/(?:^|\n)((?:[-*] [^\n]+(?:\n|$))+)/g, function(_, block) {
+    var items = block.trim().split('\n').map(function(l) {
+      return '<li>' + l.replace(/^[-*] /, '') + '</li>';
+    }).join('');
+    return '\n<ul>' + items + '</ul>\n';
+  });
+  s = s.replace(/(?:^|\n)((?:\d+[.)] [^\n]+(?:\n|$))+)/g, function(_, block) {
+    var items = block.trim().split('\n').map(function(l) {
+      return '<li>' + l.replace(/^\d+[.)] /, '') + '</li>';
+    }).join('');
+    return '\n<ol>' + items + '</ol>\n';
+  });
   s = s.replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>');
   s = s.replace(/\*(.+?)\*/g,'<em>$1</em>');
   s = s.replace(/`([^`]+)`/g,'<code>$1</code>');
+  // Don't let newlines hugging block elements become stray <br>s
+  s = s.replace(/\n(<\/?(?:ul|ol|table))/g, '$1').replace(/(<\/(?:ul|ol|table)>)\n/g, '$1');
   s = s.replace(/\n/g,'<br>');
   return s;
 }

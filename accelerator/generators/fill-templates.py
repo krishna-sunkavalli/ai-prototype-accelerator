@@ -132,7 +132,9 @@ def _build_inline_logo_svg(agent_name: str, primary: str, accent: str) -> str:
     stay unblended on purpose: gradients between arbitrary customer palettes
     (e.g. blue->lime) collapse into muddy in-between tones.
     """
-    initials = "".join(w[0] for w in agent_name.split() if w)[:2].upper() or "AI"
+    # Split camelCase too, so "ConsumersOutagePilot" → "CO", not "C".
+    spaced = re.sub(r"(?<=[a-z0-9])(?=[A-Z])", " ", agent_name)
+    initials = "".join(w[0] for w in spaced.split() if w)[:2].upper() or "AI"
     # Build an SVG without quotes that need escaping inside a data URI.
     svg = (
         "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 44 44'>"
