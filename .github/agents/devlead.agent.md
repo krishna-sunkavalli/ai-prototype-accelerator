@@ -131,16 +131,35 @@ Template — re-render this whole block as a Markdown table (NOT inside a code b
 |   7   | Write deploy hooks      |   ⏳   |
 |   8   | Pre-flight checks       |   ⏳   |
 |   9   | Deploy to Azure         |   ⏳   |
+|  10   | Verify deployment       |   ⏳   |
 ```
 
 (The fenced block above is just for reference in this prompt — when you render the live build progress, emit the Markdown table directly, NOT wrapped in a code block, so the renderer styles the borders.)
 
 Rules for the table:
-- Always include all 10 rows (S. No 0–9), even before they start.
+- Always include all 11 rows (S. No 0–10), even before they start.
 - Steps 2–6 are the parallel-ready batch; mark them 🔄 simultaneously when the batch starts.
 - Update the **Status** column in place — do not append duplicate rows or print free-form lines between renders.
 - After a row flips to ✅, ⏭️, or ❌, re-render the entire table once.
 - Keep the centered alignment markers (`:-----:` and `:------:`) for the S. No and Status columns so the renderer centers them.
+
+### Step 10 — Verify deployment (acceptance smoke test)
+
+After `azd up` succeeds and the Container App URL is resolved, run:
+
+```
+py -3 accelerator/scripts/verify-prototype.py <containerAppUrl>
+```
+
+It drives every starter question through the deployed `/chat` WebSocket and
+reports scenarios passing (routing fired, specialist responded, no errors).
+Mark row 10 ✅ when its exit code is 0, ❌ otherwise. A verification failure
+is a build failure: print the failure block with Step = `Verify` and the
+failing scenario's error as the cause — the app is deployed but did not
+pass acceptance, and the user must know that before showing it to anyone.
+If the `websockets` package is unavailable on this machine (exit code 2),
+mark row 10 ⏭️ and note `verify skipped: pip install websockets` in the
+final summary's Acceptance field instead of failing the build.
 
 ### Final output rule — the Container App URL is the deliverable
 
@@ -158,11 +177,12 @@ Print the final summary block exactly in this form (do not add extra prose):
 ```
 ### ✅ Build + deploy complete for <manifest.customer.name>
 
-| Field          | Value                                |
-|----------------|--------------------------------------|
-| App URL        | https://<containerAppFqdn>           |
-| Resource group | <manifest.deployment.resourceGroup>  |
-| Region         | <manifest.deployment.location>       |
+| Field          | Value                                          |
+|----------------|------------------------------------------------|
+| App URL        | https://<containerAppFqdn>                     |
+| Resource group | <manifest.deployment.resourceGroup>            |
+| Region         | <manifest.deployment.location>                 |
+| Acceptance     | <N>/<M> starter scenarios passing              |
 ```
 
 If the URL cannot be resolved after deployment succeeds, treat that as a deployment failure and print the failure block below with the recovery hint to run `azd env get-values` from `generated/prototype/`.

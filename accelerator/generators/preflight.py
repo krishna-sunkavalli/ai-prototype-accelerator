@@ -17,8 +17,10 @@ Run order is fast → expensive. Exits non-zero on the first failure so
 from __future__ import annotations
 
 import json
+import os
 import pathlib
 import py_compile
+import re
 import shutil
 import subprocess
 import sys
@@ -351,6 +353,142 @@ def check_azd_env_matches_manifest(errors: list[str]) -> None:
         )
 
 
+# Tools available in the static register_agents.py _TOOL_CATALOGUE. An
+# agent.yaml referencing anything else registers a PromptAgent whose tool
+# calls can never be dispatched (RESOLVED.md #4b).
+_KNOWN_TOOLS = {"run_sql_query", "search_knowledge_base", "call_mock_api"}
+
+
+def _load_manifest() -> dict | None:
+    if not MANIFEST.exists():
+        return None
+    try:
+        return json.loads(MANIFEST.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return None
+
+
+def _title_to_filename(title: str) -> str:
+    """Document title → kebab-case .md filename (docs-agent convention).
+
+    Kept in sync with title_to_filename() in fill-templates.py — both must
+    match the filenames the postprovision hook uploads.
+    """
+    slug = title.lower()
+    slug = re.sub(r"[^a-z0-9\s-]", "", slug)
+    slug = re.sub(r"[\s-]+", "-", slug.strip())
+    return f"{slug}.md"
+
+
+def check_agent_outputs(errors: list[str]) -> None:
+    """Contract-check the LLM-emitted agent definitions (build step 4).
+
+    The agents-builder specialist writes agent.yaml / schemas.py / SKILL.md
+    from prompt instructions alone; nothing else verifies it followed them.
+    This is the deterministic gate: every manifest agent must have a parseable
+    agent.yaml whose name matches, whose tools exist in the static
+    _TOOL_CATALOGUE, and whose skills all have SKILL.md files.
+    """
+    manifest = _load_manifest()
+    if manifest is None:
+        return
+    specialists = PROTO / "agents" / "specialists"
+    if not specialists.exists():
+        _err(errors, "agents/specialists/ missing — step 4 (agents-builder) has not run")
+        return
+
+    triage = specialists / "triage" / "agent.yaml"
+    if not triage.exists():
+        _err(errors, "agents/specialists/triage/agent.yaml missing")
+
+    for agent in manifest.get("agents", []) or []:
+        name = agent.get("name", "")
+        agent_dir = specialists / name
+        agent_yaml = agent_dir / "agent.yaml"
+        if not agent_yaml.exists():
+            _err(errors, f"agents/specialists/{name}/agent.yaml missing")
+            continue
+        try:
+            config = yaml.safe_load(agent_yaml.read_text(encoding="utf-8"))
+        except yaml.YAMLError as exc:
+            _err(errors, f"agents/specialists/{name}/agent.yaml is not valid YAML: {exc}")
+            continue
+        if not isinstance(config, dict):
+            _err(errors, f"agents/specialists/{name}/agent.yaml is not a mapping")
+            continue
+        if config.get("name") != name:
+            _err(
+                errors,
+                f"agents/specialists/{name}/agent.yaml name mismatch: "
+                f"{config.get('name')!r} != {name!r}",
+            )
+        if not str(config.get("system_prompt") or "").strip():
+            _err(errors, f"agents/specialists/{name}/agent.yaml has empty system_prompt")
+        unknown = [t for t in (config.get("tools") or []) if t not in _KNOWN_TOOLS]
+        if unknown:
+            _err(
+                errors,
+                f"agents/specialists/{name}/agent.yaml declares tools not in the "
+                f"static _TOOL_CATALOGUE: {unknown} (allowed: {sorted(_KNOWN_TOOLS)})",
+            )
+        if not (agent_dir / "schemas.py").exists():
+            _err(errors, f"agents/specialists/{name}/schemas.py missing")
+        for skill in agent.get("skills", []) or []:
+            skill_md = agent_dir / "skills" / skill / "SKILL.md"
+            if not skill_md.exists():
+                _err(errors, f"agents/specialists/{name}/skills/{skill}/SKILL.md missing")
+
+
+def check_knowledge_docs(errors: list[str]) -> None:
+    """Every manifest document must exist under agents/knowledge/ (step 5)."""
+    manifest = _load_manifest()
+    if manifest is None:
+        return
+    knowledge = PROTO / "agents" / "knowledge"
+    for title in manifest.get("documents", []) or []:
+        filename = _title_to_filename(title)
+        if not (knowledge / filename).exists():
+            _err(
+                errors,
+                f"knowledge doc missing for '{title}': expected "
+                f"agents/knowledge/{filename}",
+            )
+
+
+def check_seed_dry_run(errors: list[str]) -> None:
+    """Execute cosmos_seed.py in SEED_DRY_RUN mode (build step 3 contract).
+
+    Runs the LLM-generated row generators without Cosmos and enforces the
+    seed contract (unique 'id', partition-key field on every row) via
+    _seed_lib.SeedRunner. A script that passes here cannot fail the real
+    seed for contract reasons.
+    """
+    seed = PROTO / "db" / "cosmos_seed.py"
+    if not seed.exists():
+        return  # check_required_paths already reports it
+    env = {**os.environ, "SEED_DRY_RUN": "1"}
+    try:
+        result = subprocess.run(
+            [sys.executable, seed.name],
+            cwd=str(seed.parent),
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=180,
+            shell=False,
+        )
+    except subprocess.TimeoutExpired:
+        _err(errors, "cosmos_seed.py dry run timed out after 180s")
+        return
+    if result.returncode != 0:
+        tail = (result.stdout + result.stderr).strip().splitlines()[-8:]
+        _err(
+            errors,
+            "cosmos_seed.py dry run failed (SEED_DRY_RUN=1):\n      "
+            + "\n      ".join(tail),
+        )
+
+
 def _contrast_vs_white(hex_color: str) -> float | None:
     """WCAG contrast ratio of a #RRGGBB color against white, or None if malformed."""
     if not isinstance(hex_color, str) or not hex_color.startswith("#") or len(hex_color) != 7:
@@ -422,6 +560,9 @@ def main() -> None:
     check_required_paths(errors)
     check_manifest_schema(errors)
     check_brand_contrast(errors)
+    check_agent_outputs(errors)
+    check_knowledge_docs(errors)
+    check_seed_dry_run(errors)
     check_no_unresolved_placeholders(errors)
     check_python_compiles(errors)
     check_yaml_parses(errors)
