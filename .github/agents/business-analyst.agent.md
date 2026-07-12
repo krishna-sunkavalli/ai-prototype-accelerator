@@ -269,7 +269,7 @@ starter_questions:
   - <question 2>
   - <question 3>
   - <question 4>
-  # up to 6
+  # 4-5 total, each <= 70 characters, phrased as a user would type it
 
 demo_persona:
   name: <Persona Name>
@@ -312,6 +312,7 @@ mock_api:
 - `agents[].model`: must match a `model_deployments[].deployment_name`.
 - `agents[].routing_keywords`: no two agents may share any keyword.
 - At least one agent, one table, one document.
+- `starter_questions`: exactly 4-5 entries, each ≤70 characters, phrased naturally ("When will my power be restored?"), never compound sentences — they render as clickable chips and long questions wrap into ragged rows. Aim for each question to route to a different specialist.
 - ASCII only — no smart quotes, em dashes, ellipses, or other Unicode punctuation in any string field (the build pipeline normalizes them, but emit ASCII at the source).
 
 Step 3 output rules:

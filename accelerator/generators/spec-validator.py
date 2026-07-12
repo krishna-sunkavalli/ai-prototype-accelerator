@@ -155,6 +155,22 @@ def main() -> None:
     # Length-budget warnings — flag now what would otherwise blow up at deploy time.
     resource_prefix = f"{customer_short}-{demo_theme}"
     warnings: list[str] = []
+
+    # Starter-question ergonomics: the UI renders them as chips, which read
+    # best as 4-5 short questions. Soft warnings, not failures.
+    starter_qs = spec.get("starter_questions") or []
+    if len(starter_qs) > 5:
+        warnings.append(
+            f"{len(starter_qs)} starter questions; the chip row reads best "
+            f"with 4-5. Consider trimming spec.yaml starter_questions."
+        )
+    long_qs = [q for q in starter_qs if len(str(q)) > 80]
+    if long_qs:
+        warnings.append(
+            f"{len(long_qs)} starter question(s) exceed 80 characters and "
+            f"will wrap awkwardly as chips. Aim for <= 70 characters, e.g. "
+            f"shorten: {str(long_qs[0])[:60]!r}..."
+        )
     # Container Apps Environment name = `${resourcePrefix}-cae` (max 32 chars).
     if len(resource_prefix) + 4 > 32:
         warnings.append(
