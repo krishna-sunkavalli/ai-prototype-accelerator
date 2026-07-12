@@ -1249,11 +1249,11 @@ function renderStructuredJSON(obj) {
   var container = document.createElement('div');
   container.style.cssText = 'display:flex;flex-direction:column;gap:10px;font-size:13px;color:var(--gray-700);';
 
-  // Summary
+  // Summary — inline markdown only (code/bold/italic), no block elements
   if (obj.summary) {
     var p = document.createElement('p');
     p.style.cssText = 'font-weight:600;color:var(--gray-900);margin:0;';
-    p.textContent = obj.summary;
+    p.innerHTML = renderInlineMd(obj.summary);
     container.appendChild(p);
   }
 
@@ -1328,11 +1328,29 @@ function renderStructuredJSON(obj) {
   if (obj.recommended_action) {
     var box = document.createElement('div');
     box.style.cssText = 'border-left:3px solid var(--accent);background:var(--brand-muted);border-radius:0 6px 6px 0;padding:6px 10px;font-size:12px;color:var(--gray-700);';
-    box.innerHTML = '<strong>Recommended action:</strong> ' + escHtml(obj.recommended_action);
+    box.innerHTML = '<strong>Recommended action:</strong> ' + renderInlineMd(obj.recommended_action);
     container.appendChild(box);
   }
 
+  // Grounding — the agents cite their sources; show them
+  if (Array.isArray(obj.data_sources) && obj.data_sources.length) {
+    var src = document.createElement('div');
+    src.style.cssText = 'font-size:11px;color:var(--gray-500);';
+    src.textContent = 'Sources: ' + obj.data_sources.join(', ');
+    container.appendChild(src);
+  }
+
   return container;
+}
+
+/* Inline-only markdown (code, bold, italic) for structured-card strings —
+   agents write things like `vendor_pricing` in summaries. */
+function renderInlineMd(text) {
+  var s = escHtml(String(text));
+  s = s.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+  s = s.replace(/`([^`]+)`/g, '<code>$1</code>');
+  s = s.replace(/\*(.+?)\*/g, '<em>$1</em>');
+  return s;
 }
 
 function appendToolActivity(label) {

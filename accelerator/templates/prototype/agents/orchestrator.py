@@ -202,6 +202,23 @@ def _get_session(agent_name: str, session_id: str) -> AgentSession:
     )
 
 
+def _humanize_agent_name(name: str) -> str:
+    """'ProcurementAgent' → 'Procurement Agent'; 'materials_estimator' → 'Materials Estimator'.
+
+    str.title() lowercases interior capitals ('ProcurementAgent' →
+    'Procurementagent'), so PascalCase names from the spec must be split at
+    camel boundaries instead.
+    """
+    spaced = name.replace("_", " ").replace("-", " ")
+    spaced = re.sub(r"(?<=[a-z0-9])(?=[A-Z])", " ", spaced)
+    return " ".join(w if w[:1].isupper() else w.capitalize() for w in spaced.split())
+
+
+def _display_name(agent_name: str) -> str:
+    config = _agent_configs.get(agent_name, {})
+    return config.get("display_name") or _humanize_agent_name(agent_name)
+
+
 # ── Routing ────────────────────────────────────────────────────────────────────
 
 def _select_agent_keyword(user_message: str) -> str:
@@ -267,13 +284,12 @@ async def _route_sequential(user_message: str, session_id: str, websocket) -> No
             f"by the {prev['agent']} specialist]\n{user_message}"
         )
     target = await _select_agent_llm(routing_input)
-    config = _agent_configs.get(target, {})
 
     if target not in _specialist_agents:
         await _send(websocket, {"type": "error", "content": f"Agent '{target}' not available."})
         return
 
-    display_name = config.get("display_name", target.replace("_", " ").title())
+    display_name = _display_name(target)
     await _send(websocket, {"type": "handoff", "agent": display_name})
 
     # When routing lands on a different specialist than last turn, hand it the
@@ -340,7 +356,7 @@ async def _route_parallel(user_message: str, session_id: str, websocket) -> None
 
     for order in sorted(groups.keys()):
         agents_in_group = groups[order]
-        names = [_agent_configs[a].get("display_name", a) for a in agents_in_group]
+        names = [_display_name(a) for a in agents_in_group]
         await _send(websocket, {"type": "handoff", "agent": " + ".join(names)})
 
         tasks = [
@@ -369,7 +385,7 @@ async def _route_parallel(user_message: str, session_id: str, websocket) -> None
         )
         await _send(websocket, {
             "type": "handoff",
-            "agent": _agent_configs[synthesis_agent].get("display_name", "Synthesis"),
+            "agent": _display_name(synthesis_agent),
         })
         response = await _run_agent(
             agent_name=synthesis_agent,
@@ -433,8 +449,7 @@ async def _run_agent(
     finally:
         activity.unbind(activity_token)
 
-    config = _agent_configs.get(agent_name, {})
-    display_name = config.get("display_name", agent_name.replace("_", " ").title())
+    display_name = _display_name(agent_name)
 
     if stream and full_text:
         # Detect structured JSON responses and send as a single message to avoid
