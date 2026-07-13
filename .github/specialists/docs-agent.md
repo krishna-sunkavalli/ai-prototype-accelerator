@@ -43,9 +43,16 @@ Example: "Auto Loan Collections Best Practices Guide" → "auto-loan-collections
 
 ## Content rules — all mandatory
 
-### R1 — Minimum 800 words per document
+### R1 — Word count: 600-900 words per document
 These documents are chunked and indexed for semantic search.
-Short documents produce poor retrieval results during agent demos.
+Documents shorter than 600 words produce poor retrieval results during agent
+demos (thin chunks, weak semantic anchors). Documents longer than 900 words
+waste generation time and slow the Search index-and-embed step without
+improving retrieval quality — the top-k chunks are already well-formed by
+900 words for the demo's question surface.
+
+Target the 700-800 word band; write to the density of the domain, not to
+pad the word count.
 
 ### R2 — Real content, not placeholder text
 Write as if this is an actual enterprise document used by the customer.

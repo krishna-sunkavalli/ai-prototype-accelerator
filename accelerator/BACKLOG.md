@@ -61,9 +61,37 @@ Update the **Status** column when work starts / ships. Move ✅ shipped items to
 - **Owner / target:** Low priority; nice-to-have.
 
 ### 8. Build metrics distinguish idle vs active time
-- **Status:** Open — surfaced 2026-07-13 (PDS Health build reported `Spec -> deployed: 738m 52s`, but most of that was overnight idle + interactive login gaps)
+- **Status:** Partially shipped 2026-07-13 — phase-level split (generation vs provisioning vs verification) added via the new `deploy-start` event. Per-step idle-vs-active tracking still open.
 - **Fix proposal:** [`accelerator/scripts/build-metrics.py`](scripts/build-metrics.py) tracks per-step start/end times and reports cumulative "active step time" separately from wall-clock. Useful for accelerator benchmarking; currently the wall-clock number is misleading.
 - **Owner / target:** Low priority.
+
+---
+
+## Priority 4 — Orchestration wins (require headless `build.py` driver)
+
+The accelerator today runs the build through GitHub Copilot in agent mode. Copilot executes steps 3, 4, 5 (data / agents / docs specialists) serially even though the dependency graph marks them parallel-ready, and the deploy phase always waits for all generation to finish. Both constraints disappear in a headless Python driver that calls the model APIs directly. The two items below are the highest-leverage minutes savings available, but neither can ship until the driver exists.
+
+### 9. Parallel LLM generation (steps 3, 4, 5 concurrent)
+- **Status:** Open — blocked on headless `build.py` driver
+- **Symptom:** Steps 3 (data-agent → `cosmos_seed.py`), 4 (agents-builder → agent yaml + skills), 5 (docs-agent → knowledge markdown) are declared parallel-ready in the [build graph](../.github/agents/devlead.agent.md) but Copilot's agent mode drives them serially. Total generation time ≈ 5-10 min; if run truly concurrent it drops to the slowest single step (~1-2 min).
+- **Design:**
+  1. New `accelerator/scripts/build.py` — a headless driver that reads `manifest.json`, dispatches specialist LLM calls via the Foundry-deployed gpt-4o (or an alternate Azure OpenAI endpoint set by env var), and manages sentinels the same way today's Copilot flow does.
+  2. Steps 3, 4, 5 launched via `asyncio.gather(run_step_3(...), run_step_4(...), run_step_5(...))`. Each step reads its specialist markdown (`.github/specialists/<name>.md`) as system prompt and the manifest as user context; uses function-calling for file writes so the driver stays in control of what lands on disk.
+  3. Each step still writes its own hash-aware sentinel via `sentinels.py write` on success. Same failure semantics as today (any step non-zero → whole build fails, remaining tasks cancelled).
+  4. Devlead agent.md gets an alternate invocation path: `@devlead build --headless` (or a config flag) that shells out to `build.py` instead of driving specialists inline.
+- **Payoff:** Generation phase drops from 5-10 min → 1-2 min (bounded by the slowest single specialist).
+- **Owner / target:** Blocked on driver scaffold; land the scaffold first, then this is a small delta.
+
+### 10. Overlap generation with provisioning
+- **Status:** Open — blocked on headless `build.py` driver
+- **Symptom:** `azd provision` today waits for all seven generation steps to finish before starting. But `azd provision` reads only step 2's outputs (`main.bicepparam`) — steps 3-5's outputs are consumed by *postprovision* hooks (seed, index, register). Provisioning could start immediately after step 2 completes, in parallel with 3-5.
+- **Design:**
+  1. In the headless driver (see #9), after step 2 sentinel is written and preflight-what-if passes, kick off `azd provision` as a background subprocess (`asyncio.create_subprocess_exec`).
+  2. Concurrently run steps 3, 4, 5 (parallel per #9), then step 7 (hooks).
+  3. `await` provision + generation before `azd deploy`. Provisioning is typically 15-25 min; generation is 1-2 min under #9 — so generation completes entirely inside the provisioning window, contributing zero to end-to-end time.
+  4. Risk: preflight's `az deployment group what-if` step needs to run *before* kicking off provision, so preflight becomes part of the pre-provision gate rather than a separate step.
+- **Payoff:** First build ≈ provisioning time alone (15-25 min becomes the floor).
+- **Owner / target:** Blocked on #9 driver scaffold.
 
 ---
 

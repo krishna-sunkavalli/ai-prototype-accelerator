@@ -79,6 +79,13 @@ resource llmDeployments 'Microsoft.CognitiveServices/accounts/deployments@2025-0
 }]
 
 // ── Embedding deployment (always required for AI Search) ─────
+// Runs in parallel with the LLM loop. The prior `dependsOn: [llmDeployments]`
+// serialized all four model deployments end-to-end for no operational reason:
+// `@batchSize(1)` on `llmDeployments` already caps loop concurrency at 1, and
+// Azure's AIServices account serializes concurrent model-deployment creates
+// internally, so adding a fifth serial step (embedding-after-loop) was pure
+// deadweight. Removing the chain lets embedding overlap with the first LLM
+// iteration — a small (~4s) but free trim.
 resource embeddingDeployment 'Microsoft.CognitiveServices/accounts/deployments@2025-04-01-preview' = {
   parent: hubAccount
   name: embeddingModelName
@@ -94,7 +101,6 @@ resource embeddingDeployment 'Microsoft.CognitiveServices/accounts/deployments@2
     }
     raiPolicyName: 'Microsoft.DefaultV2'
   }
-  dependsOn: [llmDeployments]
 }
 
 // ── Azure AI Search ──────────────────────────────────────────
