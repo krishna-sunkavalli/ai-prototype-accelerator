@@ -97,6 +97,19 @@ async def chat(websocket: WebSocket):
     thread_id = None
     turn_count = 0
 
+    # Container Apps ingress drops idle websockets after a few minutes of
+    # silence; a server-side heartbeat keeps quiet sessions alive so a user
+    # who pauses to read doesn't come back to a reconnect banner.
+    async def _keepalive() -> None:
+        try:
+            while True:
+                await asyncio.sleep(30)
+                await websocket.send_text(json.dumps({"type": "ping"}))
+        except Exception:
+            pass  # connection is closing; the main loop handles cleanup
+
+    keepalive_task = asyncio.create_task(_keepalive())
+
     try:
         # Assign a session UUID per connection.
         # The orchestrator maps this UUID to a Foundry thread internally.
@@ -155,6 +168,8 @@ async def chat(websocket: WebSocket):
             }))
         except Exception:
             pass
+    finally:
+        keepalive_task.cancel()
 
 
 # ── GET /config ────────────────────────────────────────────────────────────────

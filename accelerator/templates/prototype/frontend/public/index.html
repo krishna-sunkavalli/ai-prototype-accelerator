@@ -1311,6 +1311,8 @@ function sendMessage(text) {
 function handleMsg(msg) {
   var t = msg.type;
 
+  if (t === 'ping') return;  // server keepalive — no UI effect
+
   if (t === 'text') {
     hideTyping();
     if (!currentAgentBubble) currentAgentBubble = startAgentBubble(msg.agent || config.AGENT_NAME);

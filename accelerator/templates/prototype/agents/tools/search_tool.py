@@ -21,6 +21,24 @@ from agents.tools import activity
 
 logger = logging.getLogger(__name__)
 
+# SearchClient is a long-lived singleton for the same reason as the Cosmos
+# client: per-call construction rebuilds connections and re-acquires tokens.
+_SEARCH_CLIENT: SearchClient | None = None
+
+
+def _get_search_client() -> SearchClient:
+    global _SEARCH_CLIENT
+    if _SEARCH_CLIENT is None:
+        credential = DefaultAzureCredential(
+            managed_identity_client_id=os.environ["AZURE_CLIENT_ID"]
+        )
+        _SEARCH_CLIENT = SearchClient(
+            endpoint=os.environ["AZURE_SEARCH_ENDPOINT"],
+            index_name=os.environ["AZURE_SEARCH_INDEX"],
+            credential=credential
+        )
+    return _SEARCH_CLIENT
+
 
 def search_knowledge_base(query: str) -> str:
     """
@@ -29,14 +47,7 @@ def search_knowledge_base(query: str) -> str:
     """
     preview = query if len(query) <= 60 else query[:57] + "..."
     activity.notify(f'Searching knowledge base: "{preview}"')
-    credential = DefaultAzureCredential(
-        managed_identity_client_id=os.environ["AZURE_CLIENT_ID"]
-    )
-    client = SearchClient(
-        endpoint=os.environ["AZURE_SEARCH_ENDPOINT"],
-        index_name=os.environ["AZURE_SEARCH_INDEX"],
-        credential=credential
-    )
+    client = _get_search_client()
 
     try:
         results = client.search(
