@@ -503,3 +503,35 @@ outputs — only a chance for drift.
 **Symptom:** When the workspace still held a `.azure/<env>/.env` from an earlier customer (different slug, different RG), `azd up` happily deployed into that stale RG until the user noticed resources landing in the wrong place.
 
 **Fix:** `accelerator/generators/preflight.py` now runs `check_azd_env_matches_manifest()` which compares the active azd env (read from `generated/prototype/.azure/config.json`) against `manifest.deployment.environmentName` and fails with an `azd env new <expected>` remediation hint when they differ.
+
+---
+
+## 20. `text-embedding-3-large` deployment defined twice in foundry-iq.bicep
+
+**Symptom:** `azd up` fails during `azd provision` with:
+
+```
+InvalidTemplate: Deployment template validation failed:
+'The resource 'Microsoft.CognitiveServices/accounts/<hub>/deployments/text-embedding-3-large' at line '1' and column '2522' is defined multiple times in a template.'
+```
+
+Bicep what-if also warns: `The resource '.../deployments/text-embedding-3-large' is defined multiple times in this deployment. Only the final state of the resource is shown.`
+
+**Root cause:** `accelerator/templates/prototype/infra/modules/foundry-iq.bicep` declared `text-embedding-3-large` twice:
+1. Via the `@batchSize(1) resource llmDeployments = [for m in modelDeployments: ...]` loop, which iterates every entry in `manifest.modelDeployments` — the canonical `spec.yaml` template shipped by `.github/agents/business-analyst.agent.md` always includes `text-embedding-3-large` in `model_deployments` so the loop always emits it.
+2. As the hard-coded `resource embeddingDeployment` right below the loop, which owns the same deployment name because AI Search vector indexing depends on it.
+
+Every real build hit this — the bug did not surface earlier only because prior specs happened to omit the embedding model from `model_deployments` or the older business-analyst template did.
+
+**Fix (applied to accelerator):** In [foundry-iq.bicep](../accelerator/templates/prototype/infra/modules/foundry-iq.bicep), filter the embedding model out of the loop before iterating:
+
+```bicep
+var llmOnlyModelDeployments = filter(modelDeployments, m => m.deploymentName != embeddingModelName)
+
+@batchSize(1)
+resource llmDeployments '...' = [for m in llmOnlyModelDeployments: { ... }]
+```
+
+The fixed `embeddingDeployment` resource remains the sole owner of `text-embedding-3-large`. Backward-compatible with specs that omit the embedding from `model_deployments` (the filter is a no-op then).
+
+**Regression guard:** `az bicep build` on the emitted `main.bicep` returns 0 errors with the fix in place. Any future duplicate-model regression will surface as a what-if `ResourceDeployedMultipleTimes` diagnostic before `azd provision` starts creating resources.

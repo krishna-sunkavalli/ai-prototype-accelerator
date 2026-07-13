@@ -50,8 +50,18 @@ resource hubAccount 'Microsoft.CognitiveServices/accounts@2025-04-01-preview' ex
 // Bicep schedules these in parallel; Azure serializes deployments
 // on the same account internally, so no explicit dependsOn chain
 // is required. If you hit throttling, reduce the array size.
+//
+// Filter out any entry whose deploymentName matches the embedding model —
+// that deployment is owned by the fixed `embeddingDeployment` resource
+// below (AI Search vector indexing depends on it). Without this filter,
+// specs that declare `text-embedding-3-large` in model_deployments (which
+// is the canonical spec.yaml template default) trigger InvalidTemplate:
+// "resource ... deployments/text-embedding-3-large is defined multiple
+// times in a template".
+var llmOnlyModelDeployments = filter(modelDeployments, m => m.deploymentName != embeddingModelName)
+
 @batchSize(1)
-resource llmDeployments 'Microsoft.CognitiveServices/accounts/deployments@2025-04-01-preview' = [for m in modelDeployments: {
+resource llmDeployments 'Microsoft.CognitiveServices/accounts/deployments@2025-04-01-preview' = [for m in llmOnlyModelDeployments: {
   parent: hubAccount
   name: m.deploymentName
   sku: {
