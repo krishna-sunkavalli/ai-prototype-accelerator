@@ -45,6 +45,7 @@ SCHEMA: list[tuple[str, type | tuple[type, ...], bool]] = [
     ("deployment.suffix", str, True),
     ("deployment.customerShort", str, True),
     ("deployment.demoTheme", str, True),
+    ("deployment.baseImage", str, False),
 
     ("resources", dict, True),
     ("resources.cosmosAccountName", str, True),

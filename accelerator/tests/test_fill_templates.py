@@ -106,6 +106,7 @@ class TestFillTemplates(unittest.TestCase):
         )
         for rel in [
             "infra/main.bicepparam",
+            "azure.yaml",
             "backend/config.py",
             "hooks/postprovision.sh",
             "hooks/postprovision.ps1",

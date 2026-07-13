@@ -138,11 +138,14 @@ async def main() -> int:
     print(f"  /config : {len(questions)} starter scenario(s)")
     print()
 
-    results = []
-    for i, q in enumerate(questions, 1):
-        print(f"  [{i}/{len(questions)}] {q}")
-        r = await run_scenario(ws_url, q, args.timeout)
-        results.append(r)
+    # Scenarios run concurrently — each opens its own websocket/session, so
+    # this also exercises multi-session isolation. Total time is the slowest
+    # question, not the sum.
+    results = await asyncio.gather(
+        *(run_scenario(ws_url, q, args.timeout) for q in questions)
+    )
+    for i, r in enumerate(results, 1):
+        print(f"  [{i}/{len(results)}] {r['question']}")
         if r["passed"]:
             shape = "structured JSON" if r["structured"] else "text"
             print(

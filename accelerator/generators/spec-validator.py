@@ -201,6 +201,7 @@ def main() -> None:
             "suffix": suffix,
             "customerShort": customer_short,
             "demoTheme": demo_theme,
+            "baseImage": deployment.get("base_image", ""),
         },
         "resources": {
             "cosmosAccountName": f"{resource_prefix}-cosmos",
