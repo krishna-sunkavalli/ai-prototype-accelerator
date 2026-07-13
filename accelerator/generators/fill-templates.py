@@ -37,15 +37,16 @@ from model_catalog import MODEL_VERSION_DEFAULTS, resolve_version  # noqa: E402
 
 TEMPLATES: list[tuple[pathlib.Path, pathlib.Path]] = [
     (TEMPLATE_ROOT / "infra" / "main.bicepparam.tpl", OUTPUT_ROOT / "infra" / "main.bicepparam"),
+    (TEMPLATE_ROOT / "azure.yaml.tpl", OUTPUT_ROOT / "azure.yaml"),
     (TEMPLATE_ROOT / "backend" / "config.py.tpl", OUTPUT_ROOT / "backend" / "config.py"),
     (TEMPLATE_ROOT / "hooks" / "postprovision.sh.tpl", OUTPUT_ROOT / "hooks" / "postprovision.sh"),
     (TEMPLATE_ROOT / "hooks" / "postprovision.ps1.tpl", OUTPUT_ROOT / "hooks" / "postprovision.ps1"),
 ]
 
 TARGET_TEMPLATES: dict[str, list[tuple[pathlib.Path, pathlib.Path]]] = {
-    "bicepparam": [TEMPLATES[0]],
-    "config": [TEMPLATES[1]],
-    "hooks": TEMPLATES[2:],
+    "bicepparam": TEMPLATES[0:2],
+    "config": [TEMPLATES[2]],
+    "hooks": TEMPLATES[3:],
 }
 
 
@@ -320,6 +321,20 @@ def build_substitutions(manifest: dict) -> dict[str, str]:  # noqa: C901
 
     ai_region = manifest.get("aiLocation", "eastus")
 
+    # -- Docker build args (azure.yaml) ---------------------------------------
+    # deployment.base_image (spec) → BASE_IMAGE build arg. Published once per
+    # requirements.txt revision by accelerator/scripts/publish-base-image.sh;
+    # cuts azd remote image builds from minutes to seconds. Empty → no
+    # buildArgs block and the Dockerfile's cold-build default applies.
+    base_image = str(d.get("baseImage", "")).strip()
+    if base_image:
+        docker_build_args = (
+            "\n      buildArgs:"
+            f"\n        - BASE_IMAGE={base_image}"
+        )
+    else:
+        docker_build_args = ""
+
     # -- Model deployments (Bicep array literal for foundry-iq) --------------
     model_deployments: list[dict] = manifest.get("modelDeployments", [])
     if model_deployments:
@@ -381,6 +396,7 @@ def build_substitutions(manifest: dict) -> dict[str, str]:  # noqa: C901
         "{{COSMOS_DATABASE_NAME}}": cosmos_database_name,
         "{{SEARCH_INDEX_NAME}}": search_index_name,
         "{{MI_NAME}}": r["miName"],
+        "{{DOCKER_BUILD_ARGS}}": docker_build_args,
         "{{STARTER_QUESTIONS_BICEP}}": sq_bicep,
         "{{STARTER_QUESTIONS_PYTHON}}": sq_python,
         "{{MODEL_DEPLOYMENTS_BICEP}}": model_deployments_bicep,

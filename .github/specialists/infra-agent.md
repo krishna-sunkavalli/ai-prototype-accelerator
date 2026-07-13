@@ -22,6 +22,7 @@ Read: generated/build-state/manifest.json
 
 ## Outputs
 Update: generated/prototype/infra/main.bicepparam   ← via fill-templates.py (no manual edit)
+Update: generated/prototype/azure.yaml              ← via fill-templates.py (docker buildArgs from deployment.base_image)
 Write:  generated/build-state/02-infra-agent.done  ← via `sentinels.py write` (see Step 2)
 
 ---
@@ -33,7 +34,10 @@ py -3 accelerator/generators/fill-templates.py --target bicepparam
 ```
 
 This reads manifest.json and hydrates `generated/prototype/infra/main.bicepparam`
-from the accelerator-owned template, including the `modelDeployments` array.
+and `generated/prototype/azure.yaml` (which carries the Docker `buildArgs`
+when the spec sets `deployment.base_image` — see
+`accelerator/scripts/publish-base-image.sh`) from the accelerator-owned
+templates, including the `modelDeployments` array.
 **Do NOT manually edit main.bicepparam, foundry-iq.bicep, or preprovision.sh.**
 Every Bicep file is a static template, and `preprovision.sh` reads
 `manifest.json` at runtime — there is nothing per-prototype to write.
@@ -44,7 +48,8 @@ Every Bicep file is a static template, and `preprovision.sh` reads
 py -3 accelerator/generators/sentinels.py write \
   --sentinel generated/build-state/02-infra-agent.done \
   --manifest generated/build-state/manifest.json \
-  --output generated/prototype/infra/main.bicepparam
+  --output generated/prototype/infra/main.bicepparam \
+  --output generated/prototype/azure.yaml
 ```
 
 This records the manifest `specChecksum` and an output hash so that a later

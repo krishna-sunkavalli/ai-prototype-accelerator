@@ -1,0 +1,22 @@
+# ai-prototype-accelerator — Dependency base image
+# Static scaffold file — do NOT modify when processing spec.yaml.
+#
+# Contains everything that is slow to install and almost never changes:
+# system packages, the Python dependency stack, and the runtime user.
+# Publish it once per requirements.txt revision with
+# accelerator/scripts/publish-base-image.sh; per-build images then start
+# FROM this and only copy application code (~seconds instead of minutes,
+# which matters because azd remote builds have no layer cache).
+
+FROM python:3.11-slim
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY backend/requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+RUN useradd -m -u 1000 appuser

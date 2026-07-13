@@ -30,8 +30,13 @@ the accelerator's minimal dependencies installed.
 from __future__ import annotations
 
 import os
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from typing import Callable, Iterable
+
+# CosmosClient is thread-safe; the SDK retries 429 throttling automatically.
+# 15 workers turns ~850 sequential upserts (2-3 minutes) into ~15 seconds.
+_SEED_WORKERS = 15
 
 
 def _is_dry_run() -> bool:
@@ -109,15 +114,20 @@ class SeedRunner:
                 id=spec.container_id,
                 partition_key=PartitionKey(path=spec.partition_key),
             )
-            count = 0
-            for row in spec.rows():
-                if "id" not in row:
-                    raise ValueError(
-                        f"row for container '{spec.container_id}' is missing required 'id' field"
-                    )
-                container.upsert_item(row)
-                count += 1
-            print(f"  Seeded {spec.container_id}: {count} items")
+            # Upserts run in parallel; the id contract is validated on the
+            # main thread while submitting so a bad generator still fails
+            # with a clear error before flooding the pool.
+            futures = []
+            with ThreadPoolExecutor(max_workers=_SEED_WORKERS) as pool:
+                for row in spec.rows():
+                    if "id" not in row:
+                        raise ValueError(
+                            f"row for container '{spec.container_id}' is missing required 'id' field"
+                        )
+                    futures.append(pool.submit(container.upsert_item, row))
+                for future in futures:
+                    future.result()  # surface the first upsert failure
+            print(f"  Seeded {spec.container_id}: {len(futures)} items")
         print("Seed complete.")
 
     def _run_dry(self, specs: list[SeedSpec]) -> None:

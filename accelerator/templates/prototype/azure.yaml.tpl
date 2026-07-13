@@ -17,7 +17,7 @@ services:
     host: containerapp
     docker:
       path: Dockerfile
-      remoteBuild: true
+      remoteBuild: true{{DOCKER_BUILD_ARGS}}
 
 hooks:
   preprovision:
