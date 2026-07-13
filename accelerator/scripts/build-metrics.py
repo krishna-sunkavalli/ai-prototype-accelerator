@@ -10,14 +10,17 @@ are recorded explicitly by the devlead into build-state/metrics.json.
 Usage:
     py -3 accelerator/scripts/build-metrics.py record build-start
     py -3 accelerator/scripts/build-metrics.py record build-start --keep-existing
+    py -3 accelerator/scripts/build-metrics.py record deploy-start
     py -3 accelerator/scripts/build-metrics.py record deploy-done
     py -3 accelerator/scripts/build-metrics.py record verify-done
     py -3 accelerator/scripts/build-metrics.py summary
 
 `record --keep-existing` is for resume: it preserves the original clock
-instead of restarting it. `summary` prints a per-step timeline and the
-headline total; its last line is designed to drop straight into the
-devlead's final summary block.
+instead of restarting it. `deploy-start` is recorded by devlead immediately
+before `azd up`, so `summary` can split generation time from provisioning
+time from verification time. `summary` prints a per-step timeline, a phase
+breakdown, and the headline total; its last line is designed to drop
+straight into the devlead's final summary block.
 """
 from __future__ import annotations
 
@@ -40,7 +43,7 @@ STEPS: list[tuple[str, str]] = [
     ("07-hook-agent", "Write deploy hooks"),
 ]
 
-_EVENTS = ("build-start", "deploy-done", "verify-done")
+_EVENTS = ("build-start", "deploy-start", "deploy-done", "verify-done")
 
 
 def _now_iso() -> str:
@@ -126,12 +129,31 @@ def summary() -> int:
         print(f"  t+{int(offset // 60):3d}:{int(offset % 60):02d}  {label}")
         last = max(last, completed)
 
-    for event, label in (("deploy-done", "Deploy to Azure"), ("verify-done", "Verify deployment")):
+    for event, label in (("deploy-start", "Deploy started"), ("deploy-done", "Deploy to Azure"), ("verify-done", "Verify deployment")):
         ts = _parse_iso(events.get(event, ""))
         if ts is not None:
             offset = (ts - start).total_seconds()
             print(f"  t+{int(offset // 60):3d}:{int(offset % 60):02d}  {label}")
             last = max(last, ts)
+
+    # ── Phase breakdown ────────────────────────────────────────────────
+    # Only render when deploy-start is recorded; older builds without it
+    # still get the timeline + headline.
+    deploy_start = _parse_iso(events.get("deploy-start", ""))
+    deploy_done  = _parse_iso(events.get("deploy-done", ""))
+    verify_done  = _parse_iso(events.get("verify-done", ""))
+    if deploy_start is not None:
+        print()
+        print("Phase breakdown")
+        gen_secs = max(0, (deploy_start - start).total_seconds())
+        print(f"  Generation   : {_fmt_duration(gen_secs)}")
+        if deploy_done is not None:
+            prov_secs = max(0, (deploy_done - deploy_start).total_seconds())
+            print(f"  Provisioning : {_fmt_duration(prov_secs)}")
+            if verify_done is not None:
+                verify_secs = max(0, (verify_done - deploy_done).total_seconds())
+                print(f"  Verification : {_fmt_duration(verify_secs)}")
+        print()
 
     total = (last - start).total_seconds()
     if _parse_iso(events.get("verify-done", "")):

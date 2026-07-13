@@ -535,3 +535,36 @@ resource llmDeployments '...' = [for m in llmOnlyModelDeployments: { ... }]
 The fixed `embeddingDeployment` resource remains the sole owner of `text-embedding-3-large`. Backward-compatible with specs that omit the embedding from `model_deployments` (the filter is a no-op then).
 
 **Regression guard:** `az bicep build` on the emitted `main.bicep` returns 0 errors with the fix in place. Any future duplicate-model regression will surface as a what-if `ResourceDeployedMultipleTimes` diagnostic before `azd provision` starts creating resources.
+
+---
+
+## 21. Knowledge docs had no upper bound on length (docs-agent.md)
+
+**Symptom:** `.github/specialists/docs-agent.md` R1 said only `Minimum 800 words per document` - no ceiling. Docs generation grew to 1000-1200 words per doc without improving retrieval quality (top-k chunks are already well-formed by ~800 words for a demo's question surface). Extra words slowed both generation and the Search index-and-embed step by 10-30% each.
+
+**Fix (applied to accelerator):** `.github/specialists/docs-agent.md` R1 now specifies a **600-900 word band** with a target of 700-800. Guidance explicitly discourages padding and notes the retrieval-quality plateau. Backward-compatible: prior builds' longer docs still index fine.
+
+## 22. `build-metrics.py` conflated generation, provisioning, and verification time
+
+**Symptom:** The build metric printed one flat wall-clock (e.g., `Spec -> deployed, verified product: 738m 52s`) with no way to see which phase dominated. When the wall-clock included overnight idle + interactive login gaps between phases, the number was actively misleading for benchmarking.
+
+**Fix (applied to accelerator):** New `deploy-start` event in [`accelerator/scripts/build-metrics.py`](../accelerator/scripts/build-metrics.py) records when devlead invokes `azd up`. `summary` now prints a **Phase breakdown** section:
+
+```
+Phase breakdown
+  Generation   : 14m 43s
+  Provisioning : 22m 12s
+  Verification :  1m 05s
+```
+
+[`.github/agents/devlead.agent.md`](../.github/agents/devlead.agent.md) Step 10 now records `deploy-start` immediately before `azd up`. Existing metric events (`build-start`, `deploy-done`, `verify-done`) unchanged; older metrics files still summarize (breakdown just omitted when `deploy-start` is absent).
+
+## 23. Embedding deployment serialized behind LLM loop for no reason
+
+**Symptom:** In `foundry-iq.bicep`, the fixed `embeddingDeployment` had `dependsOn: [llmDeployments]`, forcing the embedding model deployment to wait until ALL LLM deployments in the `@batchSize(1)` loop had finished. Added ~4-8s of pure serial wait on every provision.
+
+**Root cause:** No documented rationale for the chain. The `@batchSize(1)` on `llmDeployments` already caps loop concurrency at 1, and Azure's AIServices account serializes concurrent model-deployment creates internally - so the dependsOn was defensive overkill. Auditing the whole `accelerator/templates/prototype/infra/**/*.bicep` tree found no other explicit `dependsOn` (all inter-module deps are implicit via `.outputs.X` references, which is the recommended pattern).
+
+**Fix (applied to accelerator):** Removed `dependsOn: [llmDeployments]` from [`foundry-iq.bicep`](../accelerator/templates/prototype/infra/modules/foundry-iq.bicep). Embedding now runs in parallel with the first LLM iteration. Small trim, but establishes the pattern: don't add `dependsOn` where implicit deps already exist.
+
+**Regression guard:** Comment above the embedding resource explains why the chain was removed, so future edits don't reintroduce it accidentally. `az bicep build` still returns 0 errors.

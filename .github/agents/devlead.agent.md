@@ -145,6 +145,11 @@ Rules for the table:
 
 ### Step 10 — Verify deployment (acceptance smoke test)
 
+Immediately before invoking `azd up` (the deploy phase), record the
+provisioning-start milestone so `build-metrics.py summary` can split
+generation time from provisioning time:
+`py -3 accelerator/scripts/build-metrics.py record deploy-start`.
+
 After `azd up` succeeds, record the deploy milestone:
 `py -3 accelerator/scripts/build-metrics.py record deploy-done`.
 Then, once the Container App URL is resolved, run:
