@@ -14,7 +14,7 @@ from typing import Any
 from azure.cosmos import CosmosClient, PartitionKey, exceptions as cosmos_exc
 from azure.identity import DefaultAzureCredential
 
-from agents.tools import activity
+from agents.tools import activity, confirmations
 
 logger = logging.getLogger(__name__)
 
@@ -24,14 +24,23 @@ _WRITE_OPS = {"upsert", "create", "replace", "patch", "delete"}
 
 # ── Client ─────────────────────────────────────────────────────────────────────
 
+# CosmosClient is designed to be a long-lived singleton: it owns connection
+# pools and the credential caches tokens. Constructing one per tool call adds
+# seconds across a multi-tool answer and hammers the token endpoint.
+_COSMOS_CLIENT: CosmosClient | None = None
+
+
 def get_cosmos_client() -> CosmosClient:
-    """Return an authenticated CosmosClient using Entra ID RBAC."""
-    client_id = os.environ["AZURE_CLIENT_ID"]
-    credential = DefaultAzureCredential(managed_identity_client_id=client_id)
-    return CosmosClient(
-        url=os.environ["AZURE_COSMOS_ENDPOINT"],
-        credential=credential
-    )
+    """Return the process-wide CosmosClient (Entra ID RBAC), creating it once."""
+    global _COSMOS_CLIENT
+    if _COSMOS_CLIENT is None:
+        client_id = os.environ["AZURE_CLIENT_ID"]
+        credential = DefaultAzureCredential(managed_identity_client_id=client_id)
+        _COSMOS_CLIENT = CosmosClient(
+            url=os.environ["AZURE_COSMOS_ENDPOINT"],
+            credential=credential
+        )
+    return _COSMOS_CLIENT
 
 
 def get_container(container_name: str):
@@ -190,33 +199,46 @@ def query_items(
 def upsert_item(container_name: str, item: dict) -> Any:
     """
     Upsert a document — requires explicit user confirmation first.
-    Returns a confirmation object (NOT executed yet).
+
+    Parks the operation with the confirmation registry, pushes a
+    confirmation card to the chat UI, and tells the model to wait. The
+    write only executes when the user confirms (execute_write, called by
+    orchestrator.handle_confirmation).
     """
+    parked = confirmations.request(
+        message=_build_confirmation_message("upsert", container_name, item),
+        operation="upsert",
+        pending={"container": container_name, "item": item},
+    )
+    if not parked:
+        return {"error": "Write operations require an active chat session to confirm."}
     return {
-        "type": "confirmation",
-        "message": _build_confirmation_message("upsert", container_name, item),
-        "confirm_label": "Yes, proceed",
-        "cancel_label": "No, cancel",
+        "status": "awaiting_user_confirmation",
         "operation": "upsert",
         "container": container_name,
-        "item": item
+        "item_id": item.get("id", "(new)"),
+        "note": "Tell the user you need their confirmation before writing; a confirmation prompt is on their screen.",
     }
 
 
 def delete_item(container_name: str, item_id: str, partition_key: Any) -> Any:
     """
     Delete a document by id — requires explicit user confirmation first.
-    Returns a confirmation object (NOT executed yet).
+    Same parked-confirmation flow as upsert_item.
     """
+    parked = confirmations.request(
+        message=f"This will permanently delete item '{item_id}' from '{container_name}'. Proceed?",
+        operation="delete",
+        pending={"container": container_name, "item_id": item_id, "partition_key": partition_key},
+    )
+    if not parked:
+        return {"error": "Write operations require an active chat session to confirm."}
     return {
-        "type": "confirmation",
-        "message": f"This will permanently delete item '{item_id}' from '{container_name}'. Proceed?",
-        "confirm_label": "Yes, proceed",
-        "cancel_label": "No, cancel",
+        "status": "awaiting_user_confirmation",
         "operation": "delete",
         "container": container_name,
         "item_id": item_id,
-        "partition_key": partition_key
+        "note": "Tell the user you need their confirmation before deleting; a confirmation prompt is on their screen.",
     }
 
 

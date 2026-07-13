@@ -108,6 +108,8 @@ system_prompt: |
   - confidence: 0.0-1.0
   - data_sources: list of containers or documents queried
   - recommended_action: what the user should do next
+  - suggested_questions: 2-3 short follow-up questions (strings) the user
+    is likely to ask next; the UI renders them as clickable chips
   - <domain_array>: list of data rows returned (work_orders / technicians /
     timeline / positions / etc. — match the agent's primary entity)
 

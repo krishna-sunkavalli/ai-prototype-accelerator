@@ -33,7 +33,7 @@ from azure.identity import DefaultAzureCredential, ManagedIdentityCredential
 from agent_framework.foundry import FoundryAgent
 from agent_framework import AgentSession
 
-from agents.tools import sql_tool, search_tool, mock_api_tool, activity
+from agents.tools import sql_tool, search_tool, mock_api_tool, activity, confirmations
 
 logger = logging.getLogger(__name__)
 
@@ -49,7 +49,6 @@ _triage_agent: Optional[FoundryAgent] = None
 _specialist_sessions: dict[str, dict[str, AgentSession]] = {}
 _routing_table: dict = {}                              # keyword → agent_name
 _open_websockets: list = []                            # for graceful shutdown
-_pending_confirmations: dict = {}                      # session_id → pending write context
 # Last exchange per chat session, so triage can keep follow-ups sticky and a
 # newly-routed specialist inherits context from whichever specialist answered
 # before it (AgentSession history is per-specialist, so without this a
@@ -164,6 +163,7 @@ async def close_all_connections() -> None:
     _open_websockets.clear()
     _specialist_sessions.clear()
     _last_exchange.clear()
+    confirmations.clear()
 
 
 def get_registered_agent_names() -> list:
@@ -230,13 +230,19 @@ def _display_name(agent_name: str) -> str:
 
 # ── Routing ────────────────────────────────────────────────────────────────────
 
-def _select_agent_keyword(user_message: str) -> str:
-    """Keyword-score fallback: return the agent with most keyword matches."""
+def _keyword_scores(user_message: str) -> dict[str, int]:
+    """Per-agent count of routing keywords present in the message."""
     msg_lower = user_message.lower()
     scores: dict[str, int] = {}
     for keyword, agent_name in _routing_table.items():
         if keyword in msg_lower:
             scores[agent_name] = scores.get(agent_name, 0) + 1
+    return scores
+
+
+def _select_agent_keyword(user_message: str) -> str:
+    """Keyword-score fallback: return the agent with most keyword matches."""
+    scores = _keyword_scores(user_message)
     if scores:
         return max(scores, key=lambda k: scores[k])
     for name in _agent_configs:
@@ -284,15 +290,31 @@ async def route(user_message: str, thread_id: str, websocket) -> None:
 async def _route_sequential(user_message: str, session_id: str, websocket) -> None:
     prev = _last_exchange.get(session_id)
 
-    # Tell triage who answered last so ambiguous follow-ups ("what about
-    # tomorrow?") stay with the same specialist instead of re-routing cold.
-    routing_input = user_message
-    if prev:
-        routing_input = (
-            f"[Context: the previous question in this conversation was handled "
-            f"by the {prev['agent']} specialist]\n{user_message}"
-        )
-    target = await _select_agent_llm(routing_input)
+    # Fast paths that skip the triage LLM round-trip (1-2s per turn).
+    # Routing keywords never overlap across agents (spec-validator enforces
+    # it), so a message that clearly matches one specialist doesn't need the
+    # model to arbitrate; and a short follow-up with no competing keyword
+    # signal stays with whoever answered last.
+    target = None
+    scores = _keyword_scores(user_message)
+    matched = [a for a, s in scores.items() if s > 0]
+    if len(matched) == 1 and scores[matched[0]] >= 2:
+        target = matched[0]
+        logger.info("routing fast-path: decisive keywords → %s", target)
+    elif prev and len(user_message) <= 60 and not [a for a in matched if a != prev["agent"]]:
+        target = prev["agent"]
+        logger.info("routing fast-path: sticky follow-up → %s", target)
+
+    if target is None:
+        # Tell triage who answered last so ambiguous follow-ups ("what about
+        # tomorrow?") stay with the same specialist instead of re-routing cold.
+        routing_input = user_message
+        if prev:
+            routing_input = (
+                f"[Context: the previous question in this conversation was handled "
+                f"by the {prev['agent']} specialist]\n{user_message}"
+            )
+        target = await _select_agent_llm(routing_input)
 
     if target not in _specialist_agents:
         await _send(websocket, {"type": "error", "content": f"Agent '{target}' not available."})
@@ -327,7 +349,33 @@ async def _route_sequential(user_message: str, session_id: str, websocket) -> No
             "agent": target,
             "answer": _summarize_response(response),
         }
-    await _generate_suggestions(user_message, response, websocket)
+
+    # Specialists include suggested_questions in their JSON response (see
+    # agents-builder.md), which saves the extra triage round-trip per turn.
+    # The triage-generated fallback keeps older prototypes working.
+    suggestions = _extract_suggestions(response)
+    if suggestions:
+        await _send(websocket, {"type": "suggestions", "questions": suggestions})
+    else:
+        await _generate_suggestions(user_message, response, websocket)
+
+
+def _extract_suggestions(response: str) -> list:
+    """Pull suggested_questions out of a structured specialist response."""
+    text = (response or "").strip()
+    if text.startswith("```"):
+        text = re.sub(r"^```(?:json)?\s*", "", text, flags=re.IGNORECASE)
+        text = re.sub(r"\s*```$", "", text).strip()
+    if not text.startswith("{"):
+        return []
+    try:
+        parsed = json.loads(text)
+    except (json.JSONDecodeError, ValueError):
+        return []
+    questions = parsed.get("suggested_questions") if isinstance(parsed, dict) else None
+    if not isinstance(questions, list):
+        return []
+    return [str(q) for q in questions if str(q).strip()][:3]
 
 
 def _summarize_response(response: str) -> str:
@@ -413,6 +461,56 @@ async def _route_parallel(user_message: str, session_id: str, websocket) -> None
 
 # ── Agent runner (MAF FoundryAgent + AgentSession) ────────────────────────────
 
+async def _try_stream(agent, framed_message, session, websocket, display_name):
+    """Stream real tokens when MAF exposes a streaming API.
+
+    Returns (full_text, streamed_live). streamed_live is True only when
+    prose deltas were actually forwarded to the client — the caller then
+    just closes the message. Structured JSON replies are buffered whole
+    (the frontend JSON.parses complete payloads) and returned with
+    streamed_live=False so the caller's JSON path sends them in one piece.
+
+    The MAF streaming surface is probed defensively: when run_stream is
+    missing, yields nothing, or fails before any visible output, we return
+    ("", False) and the caller falls back to the buffered run() +
+    word-replay path. A mid-stream failure after live output surfaces as a
+    truncated-but-honest message rather than a silent retry.
+    """
+    run_stream = getattr(agent, "run_stream", None)
+    if run_stream is None:
+        return ("", False)
+
+    chunks: list[str] = []
+    buffering_json: bool | None = None  # unknown until first visible char
+    try:
+        async for update in run_stream(framed_message, session=session):
+            delta = None
+            for attr in ("text", "delta", "content"):
+                value = getattr(update, attr, None)
+                if isinstance(value, str) and value:
+                    delta = value
+                    break
+            if delta is None:
+                continue
+            chunks.append(delta)
+            if buffering_json is None:
+                visible = "".join(chunks).lstrip("﻿ \t\n")
+                if visible:
+                    # '{', '[' or a code fence → structured reply: buffer it
+                    buffering_json = visible[0] in "{[`"
+            if buffering_json is False:
+                await _send(websocket, {
+                    "type": "text", "content": delta, "done": False, "agent": display_name,
+                })
+    except Exception as exc:
+        if not chunks:
+            logger.info("run_stream unavailable (%s); falling back to run()", exc)
+            return ("", False)
+        logger.error("run_stream failed mid-response: %s", exc)
+
+    full_text = "".join(chunks).strip()
+    return (full_text, bool(full_text) and buffering_json is False)
+
 async def _run_agent(
     agent_name: str,
     session_id: str,
@@ -444,21 +542,36 @@ async def _run_agent(
     now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     framed_message = f"[Context: current UTC datetime is {now_iso}]\n{user_message}"
 
-    # Bind the tool-activity channel so tools invoked during this run can
-    # surface "Querying X..." status lines to this websocket.
-    activity_token = activity.bind(asyncio.get_running_loop(), websocket)
+    display_name = _display_name(agent_name)
+
+    # Bind the tool event channel so tools invoked during this run can send
+    # status lines and confirmation cards to this websocket, keyed to this
+    # session + agent.
+    activity_token = activity.bind(
+        asyncio.get_running_loop(), websocket, session_id, agent_name
+    )
     try:
-        result = await agent.run(framed_message, session=session)
-        full_text = str(result).strip() if result else ""
+        full_text = ""
+        streamed_live = False
+        if stream:
+            full_text, streamed_live = await _try_stream(
+                agent, framed_message, session, websocket, display_name
+            )
+        if not full_text and not streamed_live:
+            result = await agent.run(framed_message, session=session)
+            full_text = str(result).strip() if result else ""
     except Exception as e:
-        logger.error("FoundryAgent.run failed for %s: %s", agent_name, e)
+        logger.error("FoundryAgent run failed for %s: %s", agent_name, e)
         if stream:
             await _send(websocket, {"type": "error", "content": f"Agent error: {e}"})
         return ""
     finally:
         activity.unbind(activity_token)
 
-    display_name = _display_name(agent_name)
+    if streamed_live:
+        # Tokens already reached the client; just close the message.
+        await _send(websocket, {"type": "text", "content": "", "done": True, "agent": display_name})
+        return full_text
 
     if stream and full_text:
         # Detect structured JSON responses and send as a single message to avoid
@@ -505,33 +618,44 @@ async def _run_agent(
 
 
 async def handle_confirmation(incoming: dict, thread_id: str, websocket) -> None:
-    """Resume a paused write operation after the user confirms or cancels."""
-    pending = _pending_confirmations.pop(thread_id, None)
+    """Resume a parked write operation after the user confirms or cancels.
+
+    Write tools never execute directly: they park the operation in the
+    confirmations registry (keyed by session) and push a confirmation card
+    to the UI. This claims the parked operation and, only on an explicit
+    yes, executes it and lets the owning specialist narrate the outcome.
+    """
+    pending = confirmations.pop(thread_id)
     if not pending:
         await _send(websocket, {"type": "error", "content": "No pending operation to confirm."})
         return
 
-    confirmed = incoming.get("value", False)
-    if not confirmed:
-        await _send(websocket, {"type": "text", "content": "Operation cancelled.", "done": True})
+    if not incoming.get("value", False):
+        await _send(websocket, {
+            "type": "text",
+            "content": "Operation cancelled. No changes were made.",
+            "done": True,
+        })
         return
 
-    confirmation_obj = pending["confirmation"]
+    operation = pending.pop("operation", "")
+    agent_name = pending.pop("agent", "") or next(
+        (n for n in _agent_configs if n != "triage"), ""
+    )
     try:
-        result = sql_tool.execute_write(
-            query=confirmation_obj.get("query", ""),
-            params=confirmation_obj.get("params", {}),
-        )
+        result = sql_tool.execute_write(operation, **pending)
         tool_output = json.dumps(result)
     except Exception as e:
+        logger.error("confirmed write failed | op=%s | error=%s", operation, e)
         tool_output = json.dumps({"error": str(e)})
 
-    agent_name = pending.get("agent_logical_name", "")
-    session_id = pending.get("session_key", thread_id)
-    resume_msg = f"The write operation completed: {tool_output}"
+    resume_msg = (
+        f"[The user confirmed the {operation} operation and it was executed. "
+        f"Result: {tool_output}] Briefly tell the user the outcome."
+    )
     response = await _run_agent(
         agent_name=agent_name,
-        session_id=session_id,
+        session_id=thread_id,
         user_message=resume_msg,
         websocket=websocket,
         stream=True,
