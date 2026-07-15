@@ -20,6 +20,15 @@ param location string
 @description('Azure region for the AI Search service. Defaults to `location`. Override when the primary region is capacity-exhausted on the Search SKU.')
 param searchLocation string = location
 
+@description('AI Search SKU. `basic` is the default for prototype workloads (cheap, adequate for one index). Bump to `standard` when Basic is capacity-exhausted region-wide or you need multiple partitions / replicas. Never use `free` — its 3-index cap conflicts with the demo\'s knowledge index + potential future indexes.')
+@allowed([
+  'basic'
+  'standard'
+  'standard2'
+  'standard3'
+])
+param searchSku string = 'basic'
+
 @description('Name of the AIServices hub account (output of foundry.bicep).')
 param hubAccountName string
 
@@ -42,7 +51,7 @@ param embeddingModelName string = 'text-embedding-3-large'
 param embeddingModelVersion string = '1'
 
 // ── Reference existing hub (created by foundry.bicep) ────────
-resource hubAccount 'Microsoft.CognitiveServices/accounts@2025-04-01-preview' existing = {
+resource hubAccount 'Microsoft.CognitiveServices/accounts@2026-03-01' existing = {
   name: hubAccountName
 }
 
@@ -61,7 +70,7 @@ resource hubAccount 'Microsoft.CognitiveServices/accounts@2025-04-01-preview' ex
 var llmOnlyModelDeployments = filter(modelDeployments, m => m.deploymentName != embeddingModelName)
 
 @batchSize(1)
-resource llmDeployments 'Microsoft.CognitiveServices/accounts/deployments@2025-04-01-preview' = [for m in llmOnlyModelDeployments: {
+resource llmDeployments 'Microsoft.CognitiveServices/accounts/deployments@2026-03-01' = [for m in llmOnlyModelDeployments: {
   parent: hubAccount
   name: m.deploymentName
   sku: {
@@ -79,14 +88,15 @@ resource llmDeployments 'Microsoft.CognitiveServices/accounts/deployments@2025-0
 }]
 
 // ── Embedding deployment (always required for AI Search) ─────
-// Runs in parallel with the LLM loop. The prior `dependsOn: [llmDeployments]`
-// serialized all four model deployments end-to-end for no operational reason:
-// `@batchSize(1)` on `llmDeployments` already caps loop concurrency at 1, and
-// Azure's AIServices account serializes concurrent model-deployment creates
-// internally, so adding a fifth serial step (embedding-after-loop) was pure
-// deadweight. Removing the chain lets embedding overlap with the first LLM
-// iteration — a small (~4s) but free trim.
-resource embeddingDeployment 'Microsoft.CognitiveServices/accounts/deployments@2025-04-01-preview' = {
+// `dependsOn: llmDeployments` serializes embedding after all LLM
+// deployments finish. Without this, empirically (Hudson Advisors build,
+// 2026-07-13) the embedding create races with the last LLM create and
+// Azure returns `RequestConflict: Another operation is being performed
+// on the parent resource ...`. That failure surfaces as an unrecoverable
+// azd provision error even though the resource eventually creates
+// successfully — leaving azd unable to emit deployment outputs. The
+// couple of seconds we lose to serializing is worth the reliability.
+resource embeddingDeployment 'Microsoft.CognitiveServices/accounts/deployments@2026-03-01' = {
   parent: hubAccount
   name: embeddingModelName
   sku: {
@@ -101,18 +111,23 @@ resource embeddingDeployment 'Microsoft.CognitiveServices/accounts/deployments@2
     }
     raiPolicyName: 'Microsoft.DefaultV2'
   }
+  dependsOn: [
+    llmDeployments
+  ]
 }
 
 // ── Azure AI Search ──────────────────────────────────────────
-// SKU 'basic' is the default for prototype workloads — cheaper and more
-// likely to have capacity in any region. Bump to 'standard' if you need
-// higher replica/partition counts or per-index storage > 2 GB.
-resource searchService 'Microsoft.Search/searchServices@2023-11-01' = {
+// SKU is controlled by the `searchSku` param (default 'basic'). Bump to
+// 'standard' when Basic is capacity-exhausted region-wide — e.g. via
+// `azd env set AZURE_SEARCH_SKU standard` before rerunning `azd up`.
+// Higher SKUs give more replica/partition counts and per-index storage,
+// at proportionally higher cost.
+resource searchService 'Microsoft.Search/searchServices@2025-05-01' = {
   name: '${resourcePrefix}-search'
   location: searchLocation
   tags: tags
   sku: {
-    name: 'basic'
+    name: searchSku
   }
   properties: {
     replicaCount: 1

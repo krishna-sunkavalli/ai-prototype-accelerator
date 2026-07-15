@@ -15,7 +15,7 @@ mode: agent
 
 You are the devlead. One spec.yaml in. One self-contained prototype out under `generated/prototype/`.
 
-When the user says "build" (or any variation), first materialize the maintained scaffold into `generated/prototype/`, then run step 1, then run steps 2, 3, 4, 5, and 6 as a parallel-ready batch, then run step 7, then run **preflight validation** (`py -3 accelerator/generators/preflight.py`) as a **hard gate**, then run deployment from `generated/prototype/` using `azd up`. If preflight exits non-zero, stop and print the errors — do NOT run `azd up`.
+When the user says "build" (or any variation), first materialize the maintained scaffold into `generated/prototype/`, then run step 1, then run **environment preflight** (`py -3 accelerator/generators/preflight_env.py`) as a **hard gate** (fails fast on missing az/azd, expired auth, wrong subscription, drifted azd env, insufficient model TPM, or unavailable AI Search / Cosmos regional capacity), then run steps 2, 3, 4, 5, and 6 as a parallel-ready batch, then run step 7, then run **artifact preflight** (`py -3 accelerator/generators/preflight.py`) as a second **hard gate** (Bicep build, what-if, python compile, unresolved placeholders, tool resolution, seed dry-run), then run deployment via the manifest-aware wrapper (`py -3 accelerator/scripts/deploy.py`, which aligns the azd env with manifest.deployment values, sets SKIP_PREPROV_WHATIF, runs `azd up --no-prompt`, and auto-swaps AZURE_SEARCH_LOCATION on Search Basic-SKU capacity failures). If either preflight exits non-zero, stop and print the errors — do NOT continue.
 If the host cannot execute true parallel work, preserve the same dependency graph and run the batch conservatively without inventing new dependencies.
 Do not ask for confirmation between steps. Print progress and keep going.
 Do not ask product-definition questions such as confirming tables, documents, agents, branding, or use case details. Those belong to `@business-analyst`, not `@devlead`.
@@ -79,10 +79,11 @@ Each specialist file is self-contained with its own rules. Follow those rules ex
 
 - Step 0 materializes `accelerator/templates/prototype/` into `generated/prototype/`.
 - Step 1 runs first and writes `generated/build-state/manifest.json`.
-- After step 1 completes, steps 2, 3, 4, 5, and 6 are all eligible together.
+- **Environment preflight** (`accelerator/generators/preflight_env.py`) runs immediately after step 1 and before any LLM specialist. It is a hard gate: auth failures, missing tooling, drifted azd env, insufficient model TPM, or unavailable AI Search / Cosmos regional capacity all stop the build here, saving the ~10 minutes of LLM work in steps 2-6.
+- After step 1 and env preflight complete, steps 2, 3, 4, 5, and 6 are all eligible together.
 - Step 7 runs only after steps 2, 3, 4, 5, and 6 are complete.
-- Preflight (`accelerator/generators/preflight.py`) runs after step 7 and before deployment. It is a hard gate: a non-zero exit stops the build.
-- Deployment runs only after steps 1-7 are complete **and** preflight passes.
+- **Artifact preflight** (`accelerator/generators/preflight.py`) runs after step 7 and before deployment. It is a hard gate: a non-zero exit stops the build. It only covers artifact-level checks (Bicep build, what-if, python compile, unresolved placeholders, tool resolution, seed dry-run) — the environment/capacity gate already ran in phase 1.
+- Deployment runs only after steps 1-7 and BOTH preflights are complete.
 - Determinism rule: each step still reads its specialist fresh, writes only its owned outputs, and writes its own `.done` sentinel before any downstream work starts.
 
 ---
@@ -91,10 +92,12 @@ Each specialist file is self-contained with its own rules. Follow those rules ex
 
 When resuming, check sentinels against the graph:
 - `01-spec-validator.done` missing → run step 1
-- Step 1 done and any of `02` through `06` missing → run only the missing members of the parallel-ready batch
+- Step 1 done → always re-run environment preflight (it inspects live Azure state; sentinels don't apply)
+- Step 1 done and any of `02` through `06` missing → run env preflight first, then only the missing members of the parallel-ready batch
 - Steps 2-6 all done and `07-hook-agent.done` missing → run step 7
-- Steps 1-7 all done → run preflight, then deployment
+- Steps 1-7 all done → run artifact preflight, then deployment
 - Sentinel staleness: a step counts as "done" only if `accelerator/generators/sentinels.is_stale()` returns False. Staleness is judged by the step's **input fingerprint** (the manifest sections that step consumes — see `STEP_INPUTS` in `sentinels.py`), its output hash, and format validity. Convenient CLI: `py -3 accelerator/generators/sentinels.py check --sentinel <path> --manifest generated/build-state/manifest.json` (exit 0 fresh, 1 stale). Treat a stale sentinel (inputs changed, outputs modified, or legacy plain-timestamp format) as a missing sentinel and rerun the step.
+- Never block a missing step in the batch on another step in that same batch
 - Never block a missing step in the batch on another step in that same batch
 
 When skipping a completed step, mark its row with the ⏭️ glyph in the status table; do not print any other text for skipped steps.
@@ -112,6 +115,7 @@ Use exactly these emoji status glyphs in the **Status** column (they must render
 - 🔄 running
 - ✅ done
 - ⏭️ skipped (already done, sentinel fresh)
+- ⚠️ degraded (shipped but with a documented limitation — e.g. MCAPS Cosmos firewall keeping SQL empty; the app is up, agents route, knowledge search works, but data-heavy answers return empty rows. Use for verify only.)
 - ❌ failed
 
 Template — re-render this whole block as a Markdown table (NOT inside a code block) after every state change. Use exactly 3 columns (S. No / Step / Status). Do NOT add a Detail column or any other columns.
@@ -123,34 +127,109 @@ Template — re-render this whole block as a Markdown table (NOT inside a code b
 |:-----:|-------------------------|:------:|
 |   0   | Set up project          |   ✅   |
 |   1   | Validate spec           |   ✅   |
-|   2   | Build infrastructure    |   ✅   |
-|   3   | Seed sample data        |   ✅   |
-|   4   | Configure AI agents     |   🔄   |
-|   5   | Generate knowledge docs |   ⏳   |
-|   6   | Configure backend       |   ⏳   |
-|   7   | Write deploy hooks      |   ⏳   |
-|   8   | Pre-flight checks       |   ⏳   |
-|   9   | Deploy to Azure         |   ⏳   |
-|  10   | Verify deployment       |   ⏳   |
+|   2   | Environment preflight   |   ✅   |
+|   3   | Build infrastructure    |   ✅   |
+|   4   | Seed sample data        |   ✅   |
+|   5   | Configure AI agents     |   🔄   |
+|   6   | Generate knowledge docs |   ⏳   |
+|   7   | Configure backend       |   ⏳   |
+|   8   | Write deploy hooks      |   ⏳   |
+|   9   | Artifact preflight      |   ⏳   |
+|  10   | Deploy to Azure         |   ⏳   |
+|  11   | Verify deployment       |   ⏳   |
 ```
 
 (The fenced block above is just for reference in this prompt — when you render the live build progress, emit the Markdown table directly, NOT wrapped in a code block, so the renderer styles the borders.)
 
 Rules for the table:
-- Always include all 11 rows (S. No 0–10), even before they start.
-- Steps 2–6 are the parallel-ready batch; mark them 🔄 simultaneously when the batch starts.
+- Always include all 12 rows (S. No 0–11), even before they start.
+- Row 2 (Environment preflight) is a fast hard gate that runs `preflight_env.py` right after step 1. If it fails, mark row 2 ❌ and skip everything below — do NOT start the parallel batch.
+- Steps 3–7 are the parallel-ready batch (was 2-6); mark them 🔄 simultaneously when the batch starts.
+- Row 9 (Artifact preflight) runs `preflight.py` after row 8.
 - Update the **Status** column in place — do not append duplicate rows or print free-form lines between renders.
 - After a row flips to ✅, ⏭️, or ❌, re-render the entire table once.
 - Keep the centered alignment markers (`:-----:` and `:------:`) for the S. No and Status columns so the renderer centers them.
 
-### Step 10 — Verify deployment (acceptance smoke test)
+### Step 10 — Deploy to Azure (`accelerator/scripts/deploy.py`)
 
-Immediately before invoking `azd up` (the deploy phase), record the
+Immediately before invoking the deploy wrapper, record the
 provisioning-start milestone so `build-metrics.py summary` can split
 generation time from provisioning time:
 `py -3 accelerator/scripts/build-metrics.py record deploy-start`.
 
-After `azd up` succeeds, record the deploy milestone:
+Then run the manifest-aware azd wrapper — **do NOT call `azd up` directly**:
+
+```
+py -3 accelerator/scripts/deploy.py
+```
+
+The wrapper reads `generated/build-state/manifest.json` and does the
+following before running `azd up`:
+
+- Ensures the target azd env exists (creates it with `azd env new` from
+  `manifest.deployment.environmentName` / `.location` / `.subscriptionId`
+  if not).
+- Force-aligns `AZURE_LOCATION`, `AZURE_RESOURCE_GROUP`, and
+  `AZURE_SUBSCRIPTION_ID` in that env to the manifest values. This closes
+  the azd-env-drift class of failures (KNOWN_ISSUES #1, #3) — every
+  build deploys to the region and RG the spec asks for.
+- Sets `SKIP_PREPROV_WHATIF=true` so the preprovision hook doesn't
+  re-run `az deployment group what-if` (phase-2 preflight already did).
+- Runs `azd up --no-prompt`.
+- On an `InsufficientResourcesAvailable` failure for the AI Search
+  service, picks a nearest region from the built-in fallback table
+  (`eastus2 → eastus → centralus → …`), calls `azd env set
+  AZURE_SEARCH_LOCATION <region>`, and retries `azd up` once (up to
+  `--max-search-swaps` times, default 2). This closes BACKLOG #2 —
+  Basic-SKU capacity in the primary region no longer requires a manual
+  swap.
+
+Devlead treats the wrapper's exit code as the deploy verdict: 0 on
+success, non-zero as a failed deploy that should surface the failure
+block. When the deploy fails and the failure looks like a Bicep partial
+success (Bicep exited non-zero but resources exist), still fall through
+to the recovery paths below before giving up.
+
+### Recovery paths — apply before giving up on a build
+
+Two situations that regularly bit real customer builds now have scripted
+recovery. Devlead MUST attempt them before printing the failure block.
+
+- **`azd up` failed but the underlying ARM deployment already emitted its
+  outputs** — e.g. one late model deployment race-lost the parent
+  Cognitive Services account and Bicep exited non-zero even though ACR,
+  Foundry, Cosmos, Storage, and Search were all created. Symptom: the
+  next `azd deploy` fails with
+  `AZURE_CONTAINER_REGISTRY_ENDPOINT missing`. Fix:
+
+  ```
+  py -3 accelerator/scripts/recover-bicep-outputs.py
+  ```
+
+  The script finds the latest ARM deployment in the target RG, extracts
+  the UPPER_SNAKE_CASE outputs, and calls `azd env set` for each. Run it
+  automatically after any non-zero `azd up` exit, then retry `azd deploy`.
+
+- **Stranded resources from an earlier aborted build are blocking global
+  names** — e.g. a prior deploy in a different region left
+  `<slug>hudsonst` / `<slug>hudsonacr` / etc. taking their global slots.
+  Symptom: `azd up` fails 90 s in with `StorageAccountAlreadyTaken` /
+  `AlreadyInUse` / `BadRequest: Dns record ... is already taken` /
+  `CustomDomainInUse`. Preflight `check_global_name_collisions` reports
+  this before the deploy runs and prints the RG holding each conflict.
+  Recovery:
+
+  ```
+  py -3 accelerator/scripts/cleanup-partial-deploy.py            # dry run
+  py -3 accelerator/scripts/cleanup-partial-deploy.py --yes      # nuke
+  ```
+
+  Only invoke `--yes` after telling the user which RGs will be deleted
+  and receiving confirmation.
+
+### Verify
+
+After the deploy step succeeds, record the deploy milestone:
 `py -3 accelerator/scripts/build-metrics.py record deploy-done`.
 Then, once the Container App URL is resolved, run:
 
@@ -160,12 +239,18 @@ py -3 accelerator/scripts/verify-prototype.py <containerAppUrl>
 
 It drives every starter question through the deployed `/chat` WebSocket and
 reports scenarios passing (routing fired, specialist responded, no errors).
-Mark row 10 ✅ when its exit code is 0, ❌ otherwise. A verification failure
+Mark row 11 ✅ when its exit code is 0, ❌ otherwise. A verification failure
 is a build failure: print the failure block with Step = `Verify` and the
 failing scenario's error as the cause — the app is deployed but did not
 pass acceptance, and the user must know that before showing it to anyone.
+
+MCAPS subscriptions with Cosmos firewall policies produce a `DEGRADED-PASS`
+verdict from verify-prototype (exit code still 0). When that appears, mark
+row 11 ⚠️ and note the Cosmos-blocked state in the final summary's
+Acceptance field — the app is deployed and every scenario routes and
+answers, but data-heavy responses return empty rows.
 If the `websockets` package is unavailable on this machine (exit code 2),
-mark row 10 ⏭️ and note `verify skipped: pip install websockets` in the
+mark row 11 ⏭️ and note `verify skipped: pip install websockets` in the
 final summary's Acceptance field instead of failing the build.
 
 After verification completes (pass or skip), record it and fetch the
@@ -209,7 +294,7 @@ On failure: re-render the progress table with the failed step marked ❌, then a
 
 | Field            | Value                                            |
 |------------------|--------------------------------------------------|
-| Step             | <Step N/7 or Preflight or Deploy>                |
+| Step             | <Step N/7 or Env Preflight or Artifact Preflight or Deploy> |
 | Error            | <one-line cause>                                 |
 | Fix              | <one-line user action>                           |
 | Downstream work  | NOT run                                          |
@@ -233,6 +318,7 @@ On failure: re-render the progress table with the failed step marked ❌, then a
 - Use `delete_item` in cosmos_seed.py — causes DNS failure on Windows
 - Skip writing a `.done` sentinel after a step completes
 - Write a `.done` sentinel as a plain timestamp — use `py -3 accelerator/generators/sentinels.py write --sentinel <path> --manifest generated/build-state/manifest.json --output <each emitted file>` so the sentinel carries the manifest checksum and an output hash
+- Run steps 2-7 if `accelerator/generators/preflight_env.py` exits non-zero
 - Run `azd up` if `accelerator/generators/preflight.py` exits non-zero
 - Continue past a failed step
 

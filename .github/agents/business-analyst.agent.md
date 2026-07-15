@@ -85,6 +85,20 @@ Ask these topics **one at a time** in this order. Pre-fill sensible defaults fro
    ```
 
    It deterministically picks the best brand-mark candidate (header logo → apple-touch-icon → large icon → `og:image` last, since that's usually a social banner) and prints an absolute URL. Set `branding.logo_url` to the printed URL; when it exits non-zero, leave `logo_url: ""`. Sanity check: if the printed URL is obviously a photo or banner rather than a mark, discard it and use `""`. Do not narrate the command. The build downloads the file into the app's own assets at hydration time — and if `logo_url` is empty but `customer.website` is set, the build re-runs this same discovery itself, so the logo path is fully zero-touch. Set `branding.logo_url` to the absolute URL, or `""` when nothing suitable exists (the build then generates a branded initials badge). The build downloads the file into the app's own assets at hydration time, so the URL only needs to be reachable during the build — never at demo time.
+
+   **Accessibility gate — before you propose a palette, run a WCAG contrast check.** The frontend renders white text on `primary_color` (button labels, message bubbles) and uses `accent_color` for underlines / borders. Preflight enforces:
+   - `primary_color` MUST clear WCAG AA `4.5:1` against white — anything less blocks deploy.
+   - `accent_color` SHOULD clear `3:1` against white — below that, preflight emits a warning and decorative elements look faint.
+
+   Compute the ratio locally before committing to a color; when a candidate misses the bar, nudge to a darker sibling shade from the same brand family. Ratios you can trust:
+
+   | Ratio | Color(s) |
+   |---|---|
+   | > 4.5:1 (primary OK) | `#000000`, `#111827`, `#1E293B`, `#0B2340`, `#7C3AED`, `#B91C1C`, `#0F766E`, `#0369A1`, `#6D28D9` |
+   | 3.0–4.5:1 (accent-only) | `#2563EB`, `#DC2626`, `#F97316`, `#059669`, `#7C3AED` |
+   | < 3:1 (avoid entirely) | `#00A6B4`, `#C9A24B`, `#FDE047`, `#84CC16`, `#22D3EE`, `#F472B6` |
+
+   Quick formula if you need it: relative luminance L = 0.2126·R + 0.7152·G + 0.0722·B (with each channel sRGB-linearized); ratio against white is `1.05 / (L + 0.05)`. When in doubt, pick the darker variant — it's always safer for text-on-color.
 2. **Use case refinement** — Briefly describe the problem and value. Ask if it's accurate.
 3. **Agents** — Propose 2–3 specialist agent names and roles that fit the use case. Confirm with user.
 4. **Data** — Propose the key structured data tables and fields. Confirm with user.

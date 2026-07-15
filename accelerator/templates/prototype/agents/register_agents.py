@@ -81,7 +81,7 @@ def get_client() -> AIProjectClient:
     try:
         return AIProjectClient(
             endpoint=endpoint,
-            credential=AzureCliCredential(),
+            credential=AzureCliCredential(process_timeout=60),
             allow_preview=True,
         )
     except Exception:
@@ -102,12 +102,44 @@ def _load_agent_yaml(path: str) -> dict:
         return yaml.safe_load(f)
 
 
+# Shared specialist preamble — Cosmos SQL rules, tool signatures, JSON
+# response contract. Prepended to every agent that declares tools, so the
+# per-agent system_prompt in agent.yaml can focus on domain content instead
+# of restating the runtime contract. Triage (which declares no tools) does
+# not receive this preamble; its output format is unique.
+_PREAMBLE_PATH = Path(__file__).resolve().parent / "system_prompt_preamble.md"
+_PREAMBLE_CACHE: str | None = None
+
+
+def _load_preamble() -> str:
+    global _PREAMBLE_CACHE
+    if _PREAMBLE_CACHE is None:
+        try:
+            _PREAMBLE_CACHE = _PREAMBLE_PATH.read_text(encoding="utf-8").strip()
+        except OSError:
+            _PREAMBLE_CACHE = ""
+    return _PREAMBLE_CACHE
+
+
 def _instructions_from_config(config: dict) -> str:
     sp = config.get("system_prompt")
-    if sp and sp.strip():
-        return sp.strip()
-    role = config.get("role", "specialist agent")
-    return f"You are {config.get('name', 'agent')}. {role}".strip()
+    if not (sp and sp.strip()):
+        role = config.get("role", "specialist agent")
+        return f"You are {config.get('name', 'agent')}. {role}".strip()
+
+    specialist_prompt = sp.strip()
+
+    # Only tool-using agents (specialists) need the SQL + JSON contract
+    # preamble. The triage agent declares no tools and has its own
+    # single-word output contract.
+    tools = config.get("tools") or []
+    if not tools:
+        return specialist_prompt
+
+    preamble = _load_preamble()
+    if not preamble:
+        return specialist_prompt
+    return f"{preamble}\n\n---\n\n{specialist_prompt}"
 
 
 def _tools_from_config(config: dict) -> list[FunctionTool]:

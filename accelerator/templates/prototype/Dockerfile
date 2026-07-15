@@ -6,9 +6,16 @@
 # accelerator/scripts/publish-base-image.sh and set deployment.base_image in
 # spec.yaml — the RUN layers below detect what the base already provides and
 # become near-instant no-ops.
+#
+# NOTE: ACR remote-build's dependency scanner rejects the shell-style
+# `${BASE_IMAGE:-python:3.11-slim}` default-value syntax in FROM lines
+# (Hudson Advisors build, 2026-07-13). Use a plain `${BASE_IMAGE}`
+# reference and always pass --build-arg BASE_IMAGE=... The ARG line
+# below still provides a default for local `docker build` runs; the
+# ACR remote path relies on azure.yaml's docker.buildArgs.
 
 ARG BASE_IMAGE=python:3.11-slim
-FROM ${BASE_IMAGE:-python:3.11-slim}
+FROM ${BASE_IMAGE}
 
 WORKDIR /app
 

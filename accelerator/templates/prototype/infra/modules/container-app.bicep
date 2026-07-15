@@ -1,8 +1,8 @@
 // ============================================================
 // container-app.bicep — Azure Container Apps Environment + App
 // AVM modules:
-//   br/public:avm/res/app/managed-environment:0.13.2
-//   br/public:avm/res/app/container-app:0.22.1
+//   br/public:avm/res/app/managed-environment:0.13.3
+//   br/public:avm/res/app/container-app:0.23.0
 // ============================================================
 
 @description('Base name prefix for all resources.')
@@ -94,7 +94,7 @@ param minReplicas int = 0
 param maxReplicas int = 5
 
 // ── Container Apps Environment ───────────────────────────────
-module environment 'br/public:avm/res/app/managed-environment:0.13.2' = {
+module environment 'br/public:avm/res/app/managed-environment:0.13.3' = {
   name: 'deploy-cae'
   params: {
     name: '${resourcePrefix}-cae'
@@ -107,7 +107,7 @@ module environment 'br/public:avm/res/app/managed-environment:0.13.2' = {
 }
 
 // ── Container App ────────────────────────────────────────────
-module containerApp 'br/public:avm/res/app/container-app:0.22.1' = {
+module containerApp 'br/public:avm/res/app/container-app:0.23.0' = {
   name: 'deploy-ca'
   params: {
     name: '${take(resourcePrefix, 29)}-ca'

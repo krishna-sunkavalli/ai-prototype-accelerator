@@ -26,7 +26,7 @@ param location string = resourceGroup().location
 param demoTheme string
 @description('Environment name used in MI naming convention (e.g. "prototype", "dev", "prod").')
 param environmentName string = 'prototype'
-@description('Container image to deploy. Defaults to GHCR placeholder.')
+@description('Container image the Container App boots with on FIRST provision. Kept at the ACA hello-world so the initial Bicep deployment can create the resource before `azd deploy` pushes the real image. Preflight (`check_container_image_not_placeholder`) fails the build if the deployed Container App is still running this image after step 9, which is the signal that `azd deploy` never ran or failed silently.')
 param containerImage string = 'mcr.microsoft.com/azuredocs/containerapps-helloworld:latest'
 
 @description('Name of the initial Cosmos DB database.')
@@ -59,6 +59,15 @@ param aiLocation string = location
 
 @description('Azure region for the AI Search service. Defaults to location. Override when the primary region is capacity-exhausted on the standard/basic Search SKU.')
 param searchLocation string = location
+
+@description('AI Search SKU. `basic` is the default for prototype workloads; bump to `standard` (or higher) when Basic is capacity-exhausted region-wide. `azd env set AZURE_SEARCH_SKU standard` is the intended override path.')
+@allowed([
+  'basic'
+  'standard'
+  'standard2'
+  'standard3'
+])
+param searchSku string = 'basic'
 
 // ── Branding (populated from spec.yaml at Step 2b) ───────────────────
 @description('Customer display name shown in the UI header.')
@@ -103,7 +112,7 @@ var commonTags = {
 
 // ── User-Assigned Managed Identity ───────────────────────────
 // Name follows convention: {customerName}-{environmentName}-id
-module identity 'br/public:avm/res/managed-identity/user-assigned-identity:0.5.0' = {
+module identity 'br/public:avm/res/managed-identity/user-assigned-identity:0.6.0' = {
   name: 'deploy-identity'
   params: {
     name: '${customerName}-${environmentName}-id'
@@ -178,6 +187,7 @@ module openAi './modules/foundry-iq.bicep' = {
     resourcePrefix: resourcePrefix
     location: location
     searchLocation: searchLocation
+    searchSku: searchSku
     hubAccountName: foundry.outputs.aiHubName
     tags: commonTags
     managedIdentityPrincipalId: identity.outputs.principalId

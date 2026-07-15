@@ -22,6 +22,7 @@ Replaces these files entirely from templates:
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import pathlib
 import re
@@ -31,6 +32,7 @@ WORKSPACE_ROOT = pathlib.Path(__file__).resolve().parent.parent.parent
 TEMPLATE_ROOT = WORKSPACE_ROOT / "accelerator" / "templates" / "prototype"
 OUTPUT_ROOT = WORKSPACE_ROOT / "generated" / "prototype"
 MANIFEST_PATH = WORKSPACE_ROOT / "generated" / "build-state" / "manifest.json"
+LOGO_CACHE_PATH = WORKSPACE_ROOT / "generated" / "build-state" / "logo-cache.json"
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 from model_catalog import MODEL_VERSION_DEFAULTS, resolve_version  # noqa: E402
@@ -190,7 +192,68 @@ def _resolve_logo_url(
     - data: URI        → pass through (already inline)
     - /assets/... path → pass through (user placed the file manually)
     - http(s) URL      → download to local assets at build time; badge on failure
+
+    Cached: `fill-templates.py --target X` is invoked once per target within
+    a single build (bicepparam, config, hooks). Without a cache we re-run
+    discovery + download on every call — 3× hits to the customer website per
+    build. The cache is keyed on all inputs so any brand or website change
+    invalidates it, and it self-invalidates when the resolved asset (e.g.
+    `/assets/brand-logo.svg`) is missing from the emitted prototype.
     """
+    key_seed = f"{logo_url}|{agent_name}|{primary}|{accent}|{website}"
+    cache_key = hashlib.sha256(key_seed.encode("utf-8")).hexdigest()
+
+    cached = _logo_cache_lookup(cache_key)
+    if cached is not None:
+        return cached
+
+    resolved = _resolve_logo_url_uncached(
+        logo_url, agent_name, primary, accent, website
+    )
+    _logo_cache_store(cache_key, resolved)
+    return resolved
+
+
+def _logo_cache_lookup(cache_key: str) -> str | None:
+    """Return the cached resolved logo path/URI, or None on any miss.
+
+    Self-invalidates when the referenced asset is missing from disk so a
+    partial `reset-generated.sh` doesn't produce a build that points at a
+    404 asset.
+    """
+    if not LOGO_CACHE_PATH.exists():
+        return None
+    try:
+        cache = json.loads(LOGO_CACHE_PATH.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    entry = cache.get(cache_key)
+    if not isinstance(entry, str):
+        return None
+    if entry.startswith(("/assets/", "assets/")):
+        asset_name = entry.split("/")[-1]
+        if not (ASSETS_DIR / asset_name).exists():
+            return None
+    return entry
+
+
+def _logo_cache_store(cache_key: str, resolved: str) -> None:
+    try:
+        cache = {}
+        if LOGO_CACHE_PATH.exists():
+            cache = json.loads(LOGO_CACHE_PATH.read_text(encoding="utf-8"))
+        cache[cache_key] = resolved
+        LOGO_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        LOGO_CACHE_PATH.write_text(
+            json.dumps(cache, indent=2, sort_keys=True), encoding="utf-8"
+        )
+    except (OSError, json.JSONDecodeError):
+        pass  # cache is best-effort
+
+
+def _resolve_logo_url_uncached(
+    logo_url: str, agent_name: str, primary: str, accent: str, website: str = ""
+) -> str:
     if not logo_url and website:
         # Zero-touch fallback: even when the BA never populated logo_url,
         # the build discovers the mark itself from customer.website.
@@ -460,6 +523,15 @@ def fill_template(
 
 
 def main() -> None:
+    # Emitted messages contain unicode arrows / bullets. Windows default
+    # codepage (cp1252) crashes on those when stdout is piped, so force
+    # UTF-8 upfront — otherwise the process dies before writing the logo
+    # cache or reporting hydration errors.
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8")
+    if hasattr(sys.stderr, "reconfigure"):
+        sys.stderr.reconfigure(encoding="utf-8")
+
     args = parse_args()
 
     if not MANIFEST_PATH.exists():

@@ -46,7 +46,7 @@ var roleFoundryUser = '53ca6127-db72-4b80-b1b0-d745d6d5456d'
 // (https://{name}.services.ai.azure.com) resolves model deployments
 // on this same account. allowProjectManagement: true is mandatory
 // for Foundry project child resources.
-resource aiHub 'Microsoft.CognitiveServices/accounts@2025-04-01-preview' = {
+resource aiHub 'Microsoft.CognitiveServices/accounts@2026-03-01' = {
   name: '${resourcePrefix}-hub'
   location: aiLocation
   tags: tags
@@ -118,7 +118,7 @@ resource roleAssignmentFoundryUser 'Microsoft.Authorization/roleAssignments@2022
 // ── Foundry Project (sub-resource of hub) ────────────────────
 // parent: aiHub provides implicit dependsOn — ARM will not attempt
 // to create the project until the hub resource is fully provisioned.
-resource foundryProject 'Microsoft.CognitiveServices/accounts/projects@2025-04-01-preview' = {
+resource foundryProject 'Microsoft.CognitiveServices/accounts/projects@2026-03-01' = {
   parent: aiHub
   name: '${resourcePrefix}-proj'
   location: aiLocation

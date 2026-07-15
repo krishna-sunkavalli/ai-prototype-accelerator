@@ -37,74 +37,14 @@ fi
 echo "   ✅ Environment valid"
 echo ""
 
-# ── Step 2: Quota check — runs BEFORE Bicep what-if ──────────────────────────
-# Models read from manifest.json at runtime via python (no jq dependency).
-# Format inside MODELS: "model-name:required-capacity-in-k-tpm"
-echo "2️⃣  Checking model quota in $AI_REGION..."
-# Read MODELS array from manifest.json using Python (no jq dependency).
-# Python is already required by the accelerator build, so this is safer than
-# silently falling back to stale hard-coded values when jq is missing.
-MANIFEST_PATH="$(cd "$(dirname "$0")/.." && pwd)/../build-state/manifest.json"
-MODELS=()
-PYTHON_BIN="$(command -v python3 || command -v python || true)"
-if [ -f "$MANIFEST_PATH" ] && [ -n "$PYTHON_BIN" ]; then
-  while IFS= read -r line; do
-    [ -n "$line" ] && MODELS+=("$line")
-  done < <("$PYTHON_BIN" -c 'import json,sys;m=json.load(open(sys.argv[1]));[print(d["model"]+":"+str(d.get("capacity",10))) for d in m.get("modelDeployments",[])]' "$MANIFEST_PATH")
-fi
-if [ ${#MODELS[@]} -eq 0 ]; then
-  echo "   ❌ Could not read modelDeployments from $MANIFEST_PATH"
-  echo "      Ensure the manifest exists and python is available before preprovision."
-  exit 1
-fi
-QUOTA_FAILED=false
-
-for entry in "${MODELS[@]}"; do
-  MODEL="${entry%%:*}"
-  REQUIRED="${entry##*:}"
-
-  echo "   Checking $MODEL (required: ${REQUIRED}k TPM)..."
-
-  AVAILABLE=$(az cognitiveservices usage list \
-    --location "$AI_REGION" \
-    --query "[?contains(name.value, '$MODEL')].limit" \
-    --output tsv 2>/dev/null | head -1)
-
-  CURRENT=$(az cognitiveservices usage list \
-    --location "$AI_REGION" \
-    --query "[?contains(name.value, '$MODEL')].currentValue" \
-    --output tsv 2>/dev/null | head -1)
-
-  if [ -z "$AVAILABLE" ]; then
-    echo "   ⚠️  $MODEL — quota data unavailable, proceeding"
-  else
-    REMAINING=$((AVAILABLE - CURRENT))
-    if [ "$REMAINING" -lt "$REQUIRED" ] 2>/dev/null; then
-      echo "   ❌ $MODEL — insufficient quota"
-      echo "      Available: ${AVAILABLE}k, Used: ${CURRENT}k, Remaining: ${REMAINING}k, Required: ${REQUIRED}k"
-      QUOTA_FAILED=true
-    else
-      echo "   ✅ $MODEL — quota OK (${REMAINING}k remaining)"
-    fi
-  fi
-done
-
-if [ "$QUOTA_FAILED" = true ]; then
-  echo ""
-  echo "❌ Quota check failed. Options:"
-  echo "   1. Change azure_region in spec.yaml"
-  echo "   2. Request quota: aka.ms/oai-quota"
-  echo "   3. Reduce model capacity in spec.yaml Section 5b"
-  exit 1
-fi
-echo "✅ Model quota check complete"
-echo ""
-
-# ── Step 3: Regional service availability ─────────────────────────────────────
-echo "3️⃣  Checking service availability in $REGION..."
-SERVICES_FAILED=false
-
-# Check Azure Container Apps availability
+# ── Step 2: Ensure Microsoft.App provider is registered ──────────────────────
+# Container Apps is the runtime target; azd fails silently later if the
+# provider is not registered on this subscription. Model TPM quota, AI
+# Search regional capacity, and Cosmos regional AZ support are now checked
+# in accelerator/generators/preflight.py before this hook ever runs; we
+# leave provider registration here as a self-healing safety net for shells
+# where preflight was skipped.
+echo "2️⃣  Ensuring Microsoft.App provider is registered..."
 CA_CHECK=$(az provider show \
   --namespace Microsoft.App \
   --query "registrationState" \
@@ -113,12 +53,11 @@ if [ "$CA_CHECK" != "Registered" ]; then
   echo "   ⚠  Microsoft.App not registered — registering..."
   az provider register --namespace Microsoft.App --wait --output none
 fi
-
-echo "   ✅ Services available in $REGION"
+echo "   ✅ Microsoft.App registered"
 echo ""
 
-# ── Step 4: Create or confirm resource group ──────────────────────────────────
-echo "4️⃣  Ensuring resource group exists..."
+# ── Step 3: Create or confirm resource group ──────────────────────────────────
+echo "3️⃣  Ensuring resource group exists..."
 az group create \
   --name "$RESOURCE_GROUP" \
   --location "$REGION" \
@@ -126,25 +65,34 @@ az group create \
 echo "   ✅ Resource group ready: $RESOURCE_GROUP"
 echo ""
 
-# ── Step 5: Bicep what-if validation ──────────────────────────────────────────
-echo "5️⃣  Running Bicep what-if validation..."
-az deployment group what-if \
-  --resource-group "$RESOURCE_GROUP" \
-  --template-file infra/main.bicep \
-  --parameters infra/main.bicepparam \
-  --result-format FullResourcePayloads \
-  --output table
-
-WHATIF_EXIT=$?
-if [ $WHATIF_EXIT -ne 0 ]; then
+# ── Step 4: Bicep what-if validation ──────────────────────────────────────────
+# Devlead sets SKIP_PREPROV_WHATIF=true via `azd env set` because Phase 2
+# preflight (accelerator/generators/preflight.py) already ran what-if before
+# `azd up` fired. When the user invokes `azd up` outside devlead, the var is
+# unset and this belt-and-braces check still runs.
+if [ "${SKIP_PREPROV_WHATIF:-false}" = "true" ]; then
+  echo "4️⃣  Skipping Bicep what-if (preflight already validated)"
   echo ""
-  echo "   ❌ Bicep what-if failed."
-  echo "   Fix errors above before running azd up again."
-  exit 1
+else
+  echo "4️⃣  Running Bicep what-if validation..."
+  az deployment group what-if \
+    --resource-group "$RESOURCE_GROUP" \
+    --template-file infra/main.bicep \
+    --parameters infra/main.bicepparam \
+    --result-format FullResourcePayloads \
+    --output table
+
+  WHATIF_EXIT=$?
+  if [ $WHATIF_EXIT -ne 0 ]; then
+    echo ""
+    echo "   ❌ Bicep what-if failed."
+    echo "   Fix errors above before running azd up again."
+    exit 1
+  fi
+  echo ""
+  echo "   ✅ Bicep what-if passed"
+  echo ""
 fi
-echo ""
-echo "   ✅ Bicep what-if passed"
-echo ""
 
 # ── Done ──────────────────────────────────────────────────────────────────────
 echo "✅ All pre-provision checks passed."

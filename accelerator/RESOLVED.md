@@ -568,3 +568,27 @@ Phase breakdown
 **Fix (applied to accelerator):** Removed `dependsOn: [llmDeployments]` from [`foundry-iq.bicep`](../accelerator/templates/prototype/infra/modules/foundry-iq.bicep). Embedding now runs in parallel with the first LLM iteration. Small trim, but establishes the pattern: don't add `dependsOn` where implicit deps already exist.
 
 **Regression guard:** Comment above the embedding resource explains why the chain was removed, so future edits don't reintroduce it accidentally. `az bicep build` still returns 0 errors.
+
+
+## 24. Bicep resource type refresh — preview APIs and stale AVM modules
+
+**Symptom:** Every Foundry / Cognitive Services resource in infra/modules/ was declared against `Microsoft.CognitiveServices/*@2025-04-01-preview` even though three GA API versions (`2025-09-01`, `2025-12-01`, `2026-03-01`) had been published since. Preview APIs occasionally return response shapes that Bicep's resource-type validator rejects and can be deprecated without a compat guarantee — the `RequestConflict on parent` and `CustomDomainInUse` failures we hit during the Hudson Advisors build all came through the preview endpoint. AVM modules were also 1-4 minor versions stale, most notably `avm/res/document-db/database-account` at 0.15.0 vs 0.19.0.
+
+**Root cause:** No automated version check on the Bicep and AVM refs. Templates were written months ago against whatever was current at the time and drifted as Microsoft published GA versions.
+
+**Fix:** Refreshed all Bicep resource declarations and AVM references in `accelerator/templates/prototype/infra/` on 2026-07-14 —
+- `Microsoft.CognitiveServices/accounts`, `.../accounts/deployments`, `.../accounts/projects` → `2026-03-01` GA
+- `Microsoft.Search/searchServices` → `2025-05-01`
+- `avm/res/app/managed-environment` → 0.13.3
+- `avm/res/app/container-app` → 0.23.0
+- `avm/res/document-db/database-account` → 0.19.0
+- `avm/res/operational-insights/workspace` → 0.15.1
+- `avm/res/insights/component` → 0.7.2
+- `avm/res/storage/storage-account` → 0.32.1
+- `container-registry.bicep` converted from a raw `Microsoft.ContainerRegistry/registries@2023-07-01` resource to `avm/res/container-registry/registry:0.12.1`, matching the module's docstring and picking up AVM's diagnostic settings + network defaults.
+- Added `searchSku` param to `foundry-iq.bicep` (default `basic`, overridable via `azd env set AZURE_SEARCH_SKU standard`) so the recurring BACKLOG #2 "Basic SKU exhausted" pain gets a first-class knob rather than a `.bicep` edit.
+- `container-app.bicep`'s `containerImage` default flipped from `mcr.microsoft.com/azuredocs/containerapps-helloworld:latest` to `ghcr.io/PLACEHOLDER_ORG/PLACEHOLDER_REPO:latest` so a bypass of the standard `azd deploy` step fails visibly instead of silently serving the ACA hello-world page.
+
+Validated with `az bicep build` (0 errors) and the full contract test suite (58 tests passing). Phase-2 preflight cold-run stayed at ~37 s; warm caches skip the Bicep build.
+
+**Prevention:** Consider adding a periodic `version-drift.py` script that queries the Bicep resource-type catalog and AVM registry for latest versions and fails CI when the templates drift more than one minor behind. Filed as future BACKLOG.

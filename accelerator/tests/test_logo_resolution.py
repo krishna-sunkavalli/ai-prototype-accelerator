@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import importlib.util
 import pathlib
+import tempfile
 import unittest
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
@@ -22,6 +23,17 @@ _ARGS = ("AcmeBot", "#005DAA", "#7AB800")
 
 
 class TestResolveLogoUrl(unittest.TestCase):
+    def setUp(self):
+        # Isolate the per-build logo cache so tests can't leak resolved
+        # results into each other.
+        self._tmp = tempfile.TemporaryDirectory()
+        self._orig_cache_path = ft.LOGO_CACHE_PATH
+        ft.LOGO_CACHE_PATH = pathlib.Path(self._tmp.name) / "logo-cache.json"
+
+    def tearDown(self):
+        ft.LOGO_CACHE_PATH = self._orig_cache_path
+        self._tmp.cleanup()
+
     def test_empty_yields_generated_badge(self):
         result = ft._resolve_logo_url("", *_ARGS)
         self.assertTrue(result.startswith("data:image/svg+xml,"))

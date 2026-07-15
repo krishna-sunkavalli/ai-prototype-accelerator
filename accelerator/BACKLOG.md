@@ -9,17 +9,14 @@ Update the **Status** column when work starts / ships. Move ✅ shipped items to
 ## Priority 1 — Every fresh customer hits these
 
 ### 1. `azd up` invents env / region / RG instead of reading `manifest.json`
-- **Status:** Open — filed as [KNOWN_ISSUES.md #2](KNOWN_ISSUES.md) on 2026-07-12
-- **Symptom:** Without pre-running `azd env new`, `azd up` creates env `prototype` in a machine-default region and RG `rg-prototype`, ignoring `manifest.deployment.{environmentName, azureRegion, resourceGroup}`. Resources split across regions, names don't match the spec.
-- **Repro:** Hit twice this session (ACCO, PDS Health). PDS Health's first deploy landed 8 resources in the wrong RG (`rg-prototype` / `southcentralus`) before failing on Cosmos zone-redundancy in that region.
-- **Fix proposal:** New `accelerator/scripts/deploy.py` wrapper that reads `manifest.json`, runs `azd env new <name> --location <region> --subscription <sub>` (skip if exists), `azd env set AZURE_RESOURCE_GROUP <rg>`, then `azd up`. Wire into [`.github/agents/devlead.agent.md`](../.github/agents/devlead.agent.md) Step 9 so devlead always calls the wrapper.
-- **Owner / target:** Unassigned / next accelerator maintenance release.
+- **Status:** ✅ Shipped 2026-07-14 — [`accelerator/scripts/deploy.py`](scripts/deploy.py) is the manifest-aware `azd up` wrapper; devlead's Step 10 calls it instead of raw `azd up`. Reads `manifest.json`, creates or selects the target azd env, force-sets `AZURE_LOCATION` / `AZURE_RESOURCE_GROUP` / `AZURE_SUBSCRIPTION_ID` / `SKIP_PREPROV_WHATIF`, then runs `azd up --no-prompt`. Closes KNOWN_ISSUES #1 and #3.
+- **Symptom (historical):** Without pre-running `azd env new`, `azd up` created env `prototype` in a machine-default region and RG `rg-prototype`, ignoring `manifest.deployment.{environmentName, azureRegion, resourceGroup}`. Resources split across regions, names didn't match the spec.
+- **Owner / target:** Done. Move to RESOLVED.md on the next housekeeping pass.
 
 ### 2. Silent AI Search regional-capacity fallback
-- **Status:** Open — recurring per [RESOLVED.md #3](RESOLVED.md); hit again this session on PDS Health
-- **Symptom:** AI Search Basic SKU is capacity-exhausted in the primary region (`eastus2` for PDS Health, previously `eastus2` for ACCO). `azd provision` fails after ~14 min with `InsufficientResourcesAvailable`. User has to fail once, recognize the pattern, and set `AZURE_SEARCH_LOCATION` manually.
-- **Fix proposal:** [`accelerator/generators/preflight.py`](generators/preflight.py) probes AI Search SKU availability in `AZURE_LOCATION` (via `az search service create --dry-run` or the SKU-availability API) and, on detected capacity issues, sets `AZURE_SEARCH_LOCATION` to the next-nearest region automatically (with a printed note). The nearest-region lookup table already exists in [`.github/agents/business-analyst.agent.md`](../.github/agents/business-analyst.agent.md#step-26) — reuse it.
-- **Owner / target:** Unassigned / next accelerator maintenance release.
+- **Status:** ✅ Shipped 2026-07-14 — detection was already in preflight (`check_search_sku_capacity` using the SKU-availability API). Auto-swap now lives in [`accelerator/scripts/deploy.py`](scripts/deploy.py): on any `InsufficientResourcesAvailable` error targeting a Search service, the wrapper picks the nearest region from a built-in fallback table (`eastus2 → eastus → centralus → …`), calls `azd env set AZURE_SEARCH_LOCATION <region>`, and retries `azd up` once (max 2 swaps per invocation, controllable via `--max-search-swaps`).
+- **Symptom (historical):** AI Search Basic SKU capacity-exhausted in the primary region. `azd provision` failed after ~14 min with `InsufficientResourcesAvailable`; the user had to fail once, recognize the pattern, and set `AZURE_SEARCH_LOCATION` manually.
+- **Owner / target:** Done. Move to RESOLVED.md on the next housekeeping pass.
 
 ### 3. MCAPS Cosmos DB firewall blocks seed
 - **Status:** Open — filed as [KNOWN_ISSUES.md #1](KNOWN_ISSUES.md); confirmed on ACCO and PDS Health
@@ -32,10 +29,9 @@ Update the **Status** column when work starts / ships. Move ✅ shipped items to
 ## Priority 2 — Pipeline discipline / correctness
 
 ### 4. Stale `_KNOWN_CONTAINERS` instruction in [backend-agent.md](../.github/specialists/backend-agent.md)
-- **Status:** Open — surfaced 2026-07-12 (PDS Health build)
-- **Symptom:** [backend-agent.md](../.github/specialists/backend-agent.md) has a "**CRITICAL** — you MUST update `sql_tool.py`'s `_KNOWN_CONTAINERS`" instruction, but the actual [`sql_tool.py`](templates/prototype/agents/tools/sql_tool.py) template already discovers containers at runtime via `list_containers()`. A less-cautious builder would follow the doc and hand-patch a static template file (which is on the "never modify during build" list).
-- **Fix proposal:** Delete the `_KNOWN_CONTAINERS` section from [`.github/specialists/backend-agent.md`](../.github/specialists/backend-agent.md). Add a one-liner: "sql_tool.py discovers containers from the live Cosmos DB — no per-prototype edit needed."
-- **Owner / target:** Trivial — can ship immediately.
+- **Status:** ✅ Shipped 2026-07-14 — removed the misleading "CRITICAL — update `_KNOWN_CONTAINERS`" section from [.github/specialists/backend-agent.md](../.github/specialists/backend-agent.md). Replaced with a one-liner explaining that `sql_tool.py` discovers containers at runtime via `list_containers()` — no per-prototype edit needed.
+- **Symptom (historical):** [backend-agent.md](../.github/specialists/backend-agent.md) told the LLM to hand-edit a static template file that's on the "never modify during build" list, referencing a `_KNOWN_CONTAINERS` symbol that no longer exists in `sql_tool.py`.
+- **Owner / target:** Done. Move to RESOLVED.md on the next housekeeping pass.
 
 ### 5. `spec.yaml` tool names don't match runtime tool names
 - **Status:** Open
@@ -46,19 +42,18 @@ Update the **Status** column when work starts / ships. Move ✅ shipped items to
 - **Owner / target:** Unassigned. Option (a) is cleaner (fail early); option (b) is a smaller change.
 
 ### 6. `preflight.py` soft-skips on expired `az` token
-- **Status:** Open — surfaced 2026-07-12 (PDS Health build)
-- **Symptom:** When the Azure CLI token has expired, `az deployment group what-if` inside preflight fails with `AADSTS70043: The refresh token has expired`. Preflight currently soft-skips this class of failure (to avoid blocking spec authoring), then the actual `azd provision` dies much later with less useful errors.
-- **Fix proposal:** In [`preflight.py`](generators/preflight.py), detect `AADSTS70043` / `az login` / `no subscription` in stderr and fail hard with a copy-pasteable remediation: `Run: az login --tenant <detected-tenant> --scope https://management.core.windows.net//.default`.
-- **Owner / target:** Small change — can ship with #4.
+- **Status:** ✅ Shipped 2026-07-13 — [`check_az_logged_in`](generators/preflight.py) in phase-1 preflight runs `az account show` upfront and hard-fails on `AADSTS70043` / refresh-token-expired errors with the exact copy-pasteable `az login --scope https://management.core.windows.net//.default` command. The what-if soft-skip pattern still exists for other cases (RG not created yet, offline), but token expiry now surfaces at the earliest possible point.
+- **Symptom (historical):** When the Azure CLI token had expired, `az deployment group what-if` inside preflight failed with `AADSTS70043: The refresh token has expired`. Preflight soft-skipped, then the actual `azd provision` died much later with less useful errors.
+- **Owner / target:** Done. Move to RESOLVED.md on the next housekeeping pass.
 
 ---
 
 ## Priority 3 — Quality of life
 
 ### 7. Business-analyst runs a WCAG contrast check on `accent_color`
-- **Status:** Open — cosmetic; PDS Health accent `#00A6B4` was 2.95:1 against white (below WCAG AA 3:1). Preflight warned but didn't block.
-- **Fix proposal:** In [`.github/agents/business-analyst.agent.md`](../.github/agents/business-analyst.agent.md) Step 2 (Branding), compute contrast on the accent color against white before offering it, and either reject or nudge to a nearby compliant variant.
-- **Owner / target:** Low priority; nice-to-have.
+- **Status:** ✅ Shipped 2026-07-14 — [business-analyst.agent.md](../.github/agents/business-analyst.agent.md) Step 2 branding section now spells out the WCAG bars (`primary_color` ≥ 4.5:1 blocks deploy, `accent_color` < 3:1 warns), provides a quick lookup table of pre-vetted colors by bucket, and includes the sRGB luminance formula. The BA now nudges toward compliant colors up-front rather than surfacing the contrast warning at preflight time.
+- **Symptom (historical):** PDS Health accent `#00A6B4` was 2.95:1 against white (below WCAG AA 3:1). Preflight warned but didn't block, and the BA hadn't checked at spec time.
+- **Owner / target:** Done. Move to RESOLVED.md on the next housekeeping pass.
 
 ### 8. Build metrics distinguish idle vs active time
 - **Status:** Partially shipped 2026-07-13 — phase-level split (generation vs provisioning vs verification) added via the new `deploy-start` event. Per-step idle-vs-active tracking still open.
@@ -67,31 +62,21 @@ Update the **Status** column when work starts / ships. Move ✅ shipped items to
 
 ---
 
-## Priority 4 — Orchestration wins (require headless `build.py` driver)
+## Priority 4 — Won't do: architectural non-goals
 
-The accelerator today runs the build through GitHub Copilot in agent mode. Copilot executes steps 3, 4, 5 (data / agents / docs specialists) serially even though the dependency graph marks them parallel-ready, and the deploy phase always waits for all generation to finish. Both constraints disappear in a headless Python driver that calls the model APIs directly. The two items below are the highest-leverage minutes savings available, but neither can ship until the driver exists.
+The two items below are the highest-leverage minute savings available on paper, but both require replacing the Copilot-driven build with a headless driver that calls an LLM API directly. **The accelerator is Copilot-centric by design** — the target audience has Copilot access but does not necessarily have their own Azure OpenAI quota, and paying to hit an AOAI endpoint just to accelerate a Copilot workflow inverts the value proposition. Recorded here so the trade-off is documented and doesn't get re-proposed.
 
-### 9. Parallel LLM generation (steps 3, 4, 5 concurrent)
-- **Status:** Open — blocked on headless `build.py` driver
-- **Symptom:** Steps 3 (data-agent → `cosmos_seed.py`), 4 (agents-builder → agent yaml + skills), 5 (docs-agent → knowledge markdown) are declared parallel-ready in the [build graph](../.github/agents/devlead.agent.md) but Copilot's agent mode drives them serially. Total generation time ≈ 5-10 min; if run truly concurrent it drops to the slowest single step (~1-2 min).
-- **Design:**
-  1. New `accelerator/scripts/build.py` — a headless driver that reads `manifest.json`, dispatches specialist LLM calls via the Foundry-deployed gpt-4o (or an alternate Azure OpenAI endpoint set by env var), and manages sentinels the same way today's Copilot flow does.
-  2. Steps 3, 4, 5 launched via `asyncio.gather(run_step_3(...), run_step_4(...), run_step_5(...))`. Each step reads its specialist markdown (`.github/specialists/<name>.md`) as system prompt and the manifest as user context; uses function-calling for file writes so the driver stays in control of what lands on disk.
-  3. Each step still writes its own hash-aware sentinel via `sentinels.py write` on success. Same failure semantics as today (any step non-zero → whole build fails, remaining tasks cancelled).
-  4. Devlead agent.md gets an alternate invocation path: `@devlead build --headless` (or a config flag) that shells out to `build.py` instead of driving specialists inline.
-- **Payoff:** Generation phase drops from 5-10 min → 1-2 min (bounded by the slowest single specialist).
-- **Owner / target:** Blocked on driver scaffold; land the scaffold first, then this is a small delta.
+If Copilot ever ships parallel-tool-call or overlapping-tool-call support in agent mode, both items become achievable inside the existing flow — revisit at that point.
 
-### 10. Overlap generation with provisioning
-- **Status:** Open — blocked on headless `build.py` driver
-- **Symptom:** `azd provision` today waits for all seven generation steps to finish before starting. But `azd provision` reads only step 2's outputs (`main.bicepparam`) — steps 3-5's outputs are consumed by *postprovision* hooks (seed, index, register). Provisioning could start immediately after step 2 completes, in parallel with 3-5.
-- **Design:**
-  1. In the headless driver (see #9), after step 2 sentinel is written and preflight-what-if passes, kick off `azd provision` as a background subprocess (`asyncio.create_subprocess_exec`).
-  2. Concurrently run steps 3, 4, 5 (parallel per #9), then step 7 (hooks).
-  3. `await` provision + generation before `azd deploy`. Provisioning is typically 15-25 min; generation is 1-2 min under #9 — so generation completes entirely inside the provisioning window, contributing zero to end-to-end time.
-  4. Risk: preflight's `az deployment group what-if` step needs to run *before* kicking off provision, so preflight becomes part of the pre-provision gate rather than a separate step.
-- **Payoff:** First build ≈ provisioning time alone (15-25 min becomes the floor).
-- **Owner / target:** Blocked on #9 driver scaffold.
+### 9. Parallel LLM generation (steps 3, 4, 5 concurrent) — DECLINED
+- **Status:** Won't do (as designed). Copilot's agent-mode execution loop processes tool calls serially in a chat session; there is no `asyncio.gather` equivalent inside Copilot. The only way to run steps 3, 4, 5 concurrently today is to call an LLM API directly from a Python driver — which requires an AOAI subscription users of this accelerator are not assumed to have.
+- **Payoff if we ever did it:** Generation phase drops from 5-10 min → 1-2 min (bounded by the slowest single specialist).
+- **Revisit if:** Copilot exposes a parallel-tool-call surface, OR the accelerator's target audience shifts to teams that always have AOAI access.
+
+### 10. Overlap generation with provisioning — DECLINED
+- **Status:** Won't do (as designed). Same root cause as #9 — the headless driver required to kick off `azd provision` in a background subprocess (via `asyncio.create_subprocess_exec`) while Copilot continues generating in the same "session" doesn't fit Copilot's agent model. A user can approximate the effect manually by opening a second terminal and running `azd provision` after step 2 completes, but that's an escape hatch, not an accelerator feature.
+- **Payoff if we ever did it:** First build ≈ provisioning time alone (~15-25 min).
+- **Revisit if:** Copilot lets agent code spawn and monitor long-running subprocesses concurrent with LLM turns.
 
 ---
 

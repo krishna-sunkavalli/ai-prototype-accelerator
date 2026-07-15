@@ -1,6 +1,11 @@
 // ============================================================
 // container-registry.bicep — Azure Container Registry
 // AVM module: br/public:avm/res/container-registry/registry:0.12.1
+//
+// Basic SKU (prototype default) implies public network access is
+// always Enabled — the AVM `publicNetworkAccess` and network-rules
+// parameters require Premium SKU and are intentionally omitted.
+// Bumping to Premium is a spec-level decision, not a template one.
 // ============================================================
 
 @description('Base name prefix for all resources.')
@@ -16,43 +21,38 @@ param tags object = {}
 @description('Principal ID of the user-assigned managed identity (to grant AcrPull).')
 param managedIdentityPrincipalId string
 
-// ── Container Registry ───────────────────────────────────────
 // ACR names must be globally unique, 5-50 lowercase alphanumeric only.
 // Name is computed here; caller must ensure resourcePrefix has ≥ 3 chars.
 // 'acr' suffix added so minimum possible length = len(resourcePrefix)+3 ≥ 6.
 var acrName = toLower(replace(take('${resourcePrefix}acr', 50), '-', ''))
 
-resource registry 'Microsoft.ContainerRegistry/registries@2023-07-01' = {
-  name: acrName
-  location: location
-  tags: tags
-  sku: {
-    name: 'Basic'
-  }
-  properties: {
-    adminUserEnabled: false
-    publicNetworkAccess: 'Enabled'
-  }
-}
-
-var acrPullRoleId = '7f951dda-4ed3-4680-a7ca-43fe172d538d'
-
-resource acrPull 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(registry.id, managedIdentityPrincipalId, acrPullRoleId)
-  scope: registry
-  properties: {
-    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', acrPullRoleId)
-    principalId: managedIdentityPrincipalId
-    principalType: 'ServicePrincipal'
+module registry 'br/public:avm/res/container-registry/registry:0.12.1' = {
+  name: 'deploy-acr'
+  params: {
+    name: acrName
+    location: location
+    tags: tags
+    acrSku: 'Basic'
+    acrAdminUserEnabled: false
+    // AVM grants AcrPull to the managed identity via its own role-assignment
+    // block; the built-in role name is resolved internally so we don't need
+    // to pass the role definition GUID.
+    roleAssignments: [
+      {
+        principalId: managedIdentityPrincipalId
+        principalType: 'ServicePrincipal'
+        roleDefinitionIdOrName: 'AcrPull'
+      }
+    ]
   }
 }
 
 // ── Outputs ──────────────────────────────────────────────────
 @description('Resource ID of the container registry.')
-output registryId string = registry.id
+output registryId string = registry.outputs.resourceId
 
 @description('Name of the container registry.')
-output registryName string = registry.name
+output registryName string = registry.outputs.name
 
 @description('Login server URL of the container registry.')
-output loginServer string = registry.properties.loginServer
+output loginServer string = registry.outputs.loginServer

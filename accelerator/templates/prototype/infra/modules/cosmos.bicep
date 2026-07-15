@@ -1,7 +1,7 @@
 // ============================================================
 // cosmos.bicep — Azure Cosmos DB (NoSQL API)
 // AVM module:
-//   br/public:avm/res/document-db/database-account:0.15.0
+//   br/public:avm/res/document-db/database-account:0.19.0
 //
 // Auth: RBAC only (key-based auth disabled)
 // The managed identity is granted Cosmos DB Built-in Data Contributor.
@@ -20,7 +20,7 @@ param tags object = {}
 param databaseName string = 'prototype-db'
 
 // ── Cosmos DB Account ─────────────────────────────────────────
-module cosmosAccount 'br/public:avm/res/document-db/database-account:0.15.0' = {
+module cosmosAccount 'br/public:avm/res/document-db/database-account:0.19.0' = {
   name: 'deploy-cosmos-account'
   params: {
     name: '${resourcePrefix}-cosmos'

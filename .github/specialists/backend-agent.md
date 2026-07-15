@@ -156,32 +156,13 @@ The pre-built `generated/prototype/agents/tools/sql_tool.py` reads:
 Never add `AZURE_POSTGRES_SERVER`, `AZURE_POSTGRES_DB`, or any PostgreSQL variable.
 The database is Cosmos DB NoSQL. There is no PostgreSQL in this scaffold.
 
-> **CRITICAL — update `_KNOWN_CONTAINERS` and default in `sql_tool.py`:**
-> The scaffold ships with placeholder container names (`loan_assets`, `payment_history`, etc.)
-> that do NOT exist. You MUST replace them with the actual container names from
-> `manifest.tables[].name`. Also update the fallback default to the first/primary container.
->
-> ```python
-> # Replace this stale scaffold list:
-> _KNOWN_CONTAINERS = [
->     "loan_assets",
->     "payment_history",
->     ...
-> ]
->
-> # With the real containers from manifest.tables[]:
-> _KNOWN_CONTAINERS = [
->     "<manifest.tables[0].name>",
->     "<manifest.tables[1].name>",
->     # one entry per manifest table
-> ]
-> ```
->
-> Also update the default fallback (search for `container = "loan_assets"`) to
-> `container = "<manifest.tables[0].name>"`.
->
-> Failure to do this means every agent query will hit a non-existent container
-> and return "issue querying the database" errors at runtime.
+> **Container discovery — nothing to hand-edit.**
+> `sql_tool.py` discovers the live Cosmos container list at runtime via
+> `list_containers()` and caches it for the process lifetime. Do NOT
+> hand-edit `sql_tool.py` — it is a static template on the "never modify
+> during build" list. The old instruction to update `_KNOWN_CONTAINERS`
+> from `manifest.tables[]` was based on an obsolete scaffold that no
+> longer exists in this repository.
 
 ---
 

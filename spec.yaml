@@ -1,155 +1,181 @@
 customer:
-  name: Consumers Energy
-  slug: consumers
-  industry: Utilities - Electric and Natural Gas
-  website: https://www.consumersenergy.com
+  name: Hudson Advisors
+  slug: hudson
+  industry: Real Estate & Alternative Asset Management
+  website: https://www.hudson-advisors.com/
 
 branding:
-  agent_name: ConsumersOutagePilot
-  primary_color: "#005DAA"
-  accent_color: "#7AB800"
+  agent_name: HudsonUnderwriter
+  primary_color: "#0B2340"
+  accent_color: "#C9A24B"
   font_family: "Segoe UI, system-ui, sans-serif"
   logo_url: ""
-  welcome_message: "Hi, I'm Outage Pilot. Tell me your address or account and I'll share your outage status, estimated restoration time, and what to do next."
+  welcome_message: "Welcome. Ask me about deals, comps, cap rates, or diligence status."
 
 use_case:
-  title: Outage Status and Restoration Assistant
+  title: CRE Underwriting & Diligence Copilot
   description: >
-    A residential customer-facing chat assistant for Consumers Energy customers experiencing
-    a power outage. Customers ask for current outage status at their address, estimated
-    restoration times, safety steps around downed lines and food spoilage, and how to report
-    new damage. The assistant grounds answers in outage events, service points, and crew
-    assignments, and routes life-safety issues (downed wires, gas smell) to 911 or the
-    Consumers Energy emergency line.
+    A branded chat assistant for Hudson Advisors acquisition analysts working commercial real estate
+    deals. Analysts ask about comps, cap rates, tenant rolls, and diligence checklists and get
+    structured underwriting summaries with citations, so they can build IC memos faster and surface
+    red flags earlier in the deal cycle.
 
 deployment:
-  environment_name: consumers-prototype
-  resource_group: rg-consumers-prototype
-  azure_region: southcentralus
-  database_name: consumers-db
+  environment_name: hudson-advisors-prototype
+  resource_group: rg-hudson-advisors-prototype
+  azure_region: eastus2
+  database_name: hudson-advisors-db
 
 agents:
-  - name: OutageStatusAgent
-    role: Looks up current outage status and estimated restoration time for a given service address or account.
+  - name: UnderwritingAgent
+    role: Lead deal analyst for CRE acquisitions
     model: gpt-4o
-    routing_keywords: [outage, power, lights, eta, restoration, status, blackout, when]
+    routing_keywords: [deal, underwriting, cap, noi, valuation, irr, memo]
     tools: [search_tool, sql_tool]
     skills:
-      - name: lookup_outage_by_address
-        description: Find the active outage event covering a service address and return crew status and ETA.
-      - name: nearby_outage_summary
-        description: Summarize how widespread the outage is in the customer's area.
+      - name: deal_summary
+        description: Summarize a target deal's key underwriting metrics and assumptions.
+      - name: return_analysis
+        description: Explain expected returns, cap rate, and sensitivity for a deal.
     system_prompt_focus: >
-      Answer outage status questions for residential customers. Use service_points and
-      outage_events to match the customer to an active event, and cite the customer
-      communications guide. If the customer reports a downed wire or gas smell, tell them
-      to call 911 and the Consumers Energy emergency line immediately and stop.
+      You lead CRE deal analysis for Hudson Advisors. Pull deal metrics from the deals table, cite
+      supporting comps, and produce concise, IC-ready underwriting summaries. Always call out
+      assumptions and open risks.
     response_format: [bulleted, cite_sources]
 
-  - name: SafetyAndReportingAgent
-    role: Guides customers through safety steps during an outage and how to report new damage or hazards.
-    model: gpt-4o
-    routing_keywords: [safety, downed, wire, tree, hazard, report, gas, smell, generator]
-    tools: [search_tool]
-    skills:
-      - name: outage_safety_checklist
-        description: Walk the customer through outage safety steps (generators, food, medical devices).
-      - name: report_damage_flow
-        description: Coach the customer on what details to include when reporting damage or a hazard.
-    system_prompt_focus: >
-      Help customers stay safe during outages and report damage clearly. Cite the safety
-      guide. For any life-safety situation (downed line, gas smell, medical device on power),
-      direct the customer to call 911 and the Consumers Energy emergency line first.
-    response_format: [bulleted, cite_sources]
-
-  - name: RestorationExpectationsAgent
-    role: Sets expectations for how restoration works, why some neighbors get power back first, and what to do after restoration.
+  - name: DiligenceAgent
+    role: Diligence coordinator tracking checklist status and red flags
     model: gpt-4o-mini
-    routing_keywords: [neighbor, why, priority, restore, after, food, fridge, reset, breaker]
+    routing_keywords: [diligence, checklist, redflag, status, open, item, review]
     tools: [search_tool, sql_tool]
     skills:
-      - name: explain_restoration_priority
-        description: Explain Consumers Energy's restoration priority (substations, critical facilities, then circuits).
-      - name: post_restoration_checklist
-        description: Produce a checklist for after the power comes back (breakers, food safety, appliances).
+      - name: checklist_status
+        description: Report diligence checklist completion status for a given deal.
+      - name: red_flag_scan
+        description: Surface open red flags and outstanding diligence items across deals.
     system_prompt_focus: >
-      Set realistic expectations about how power restoration works and what to do once
-      power is back. Cite the restoration overview document. Avoid promising specific times
-      beyond what outage_events.eta reports.
+      You coordinate diligence for Hudson Advisors CRE deals. Query the diligence_items table for
+      status, highlight overdue or blocking items, and reference the diligence playbook documents
+      when explaining standards.
+    response_format: [bulleted, cite_sources]
+
+  - name: MarketDataAgent
+    role: Market comps and tenant credit specialist
+    model: gpt-4o-mini
+    routing_keywords: [comp, comps, market, rent, tenant, lease, submarket, benchmark]
+    tools: [search_tool, sql_tool]
+    skills:
+      - name: comp_lookup
+        description: Return comparable sales for a property type and submarket.
+      - name: tenant_profile
+        description: Summarize tenant credit and lease terms for a property.
+    system_prompt_focus: >
+      You provide market context for Hudson Advisors underwriting. Query comparable_sales and
+      tenants tables, compute simple averages when asked, and cite the market reports knowledge
+      base for regional benchmarks.
     response_format: [bulleted, cite_sources]
 
 tables:
-  - name: service_points
-    partition_key: /county
-    seed_count: 400
-    seed_scenario: Residential service points across Michigan counties with circuit and substation references.
-    description: Residential electric service points used to match a customer address to an outage event.
-    columns:
-      - { name: id, type: string }
-      - { name: county, type: string }
-      - { name: serviceAddress, type: string }
-      - { name: city, type: string }
-      - { name: zipCode, type: string }
-      - { name: circuitId, type: string }
-      - { name: substationId, type: string }
-      - { name: meterId, type: string }
-
-  - name: outage_events
-    partition_key: /county
-    seed_count: 250
-    seed_scenario: Active and recently restored outage events spanning storm-driven and equipment-failure causes across Michigan.
-    description: Outage events with cause, affected circuits, ETA, and crew status.
-    columns:
-      - { name: id, type: string }
-      - { name: county, type: string }
-      - { name: circuitId, type: string }
-      - { name: cause, type: string }
-      - { name: startTime, type: date }
-      - { name: eta, type: date }
-      - { name: customersAffected, type: number }
-      - { name: status, type: string }
-
-  - name: crew_assignments
-    partition_key: /eventId
+  - name: deals
+    partition_key: /dealId
     seed_count: 200
-    seed_scenario: Field crew assignments mapped to outage events with crew type and dispatch timestamps.
-    description: Crew dispatch records tied to outage events to power realistic restoration narrative.
+    seed_scenario: Active and historical Hudson Advisors CRE acquisition candidates across office, industrial, multifamily, and retail in major US metros.
+    description: Master record of CRE deals under evaluation or closed.
     columns:
       - { name: id, type: string }
-      - { name: eventId, type: string }
-      - { name: crewType, type: string }
-      - { name: crewLead, type: string }
-      - { name: dispatchedAt, type: date }
-      - { name: onSiteAt, type: date }
+      - { name: dealId, type: string }
+      - { name: propertyName, type: string }
+      - { name: propertyType, type: string }
+      - { name: metro, type: string }
+      - { name: submarket, type: string }
+      - { name: askingPrice, type: number }
+      - { name: noi, type: number }
+      - { name: capRate, type: number }
+      - { name: targetIrr, type: number }
+      - { name: status, type: string }
+      - { name: leadAnalyst, type: string }
+      - { name: lastUpdated, type: date }
+
+  - name: comparable_sales
+    partition_key: /metro
+    seed_count: 400
+    seed_scenario: Recent CRE transaction comps by metro and property type with sale price, cap rate, and price per square foot.
+    description: Comparable sales used to benchmark deal pricing.
+    columns:
+      - { name: id, type: string }
+      - { name: metro, type: string }
+      - { name: submarket, type: string }
+      - { name: propertyType, type: string }
+      - { name: buildingSf, type: number }
+      - { name: salePrice, type: number }
+      - { name: pricePerSf, type: number }
+      - { name: capRate, type: number }
+      - { name: saleDate, type: date }
+      - { name: buyer, type: string }
+      - { name: seller, type: string }
+
+  - name: tenants
+    partition_key: /dealId
+    seed_count: 300
+    seed_scenario: Tenant roster and lease terms for properties in the deal pipeline, including credit tier and remaining term.
+    description: Tenant and lease detail supporting rent roll analysis.
+    columns:
+      - { name: id, type: string }
+      - { name: dealId, type: string }
+      - { name: tenantName, type: string }
+      - { name: industry, type: string }
+      - { name: creditTier, type: string }
+      - { name: leasedSf, type: number }
+      - { name: baseRentPsf, type: number }
+      - { name: leaseStart, type: date }
+      - { name: leaseEnd, type: date }
+      - { name: renewalOption, type: boolean }
+
+  - name: diligence_items
+    partition_key: /dealId
+    seed_count: 300
+    seed_scenario: Diligence checklist items per deal covering legal, environmental, title, financial, and physical inspections with owner and status.
+    description: Diligence checklist tracking for each active deal.
+    columns:
+      - { name: id, type: string }
+      - { name: dealId, type: string }
+      - { name: category, type: string }
+      - { name: itemName, type: string }
+      - { name: owner, type: string }
+      - { name: status, type: string }
+      - { name: dueDate, type: date }
+      - { name: isRedFlag, type: boolean }
       - { name: notes, type: string }
 
 documents:
-  - title: Outage Safety Guide for Customers
-    description: Plain-language safety steps for outages, downed lines, generators, and medical equipment.
-    key_topics: [downed wires, generator safety, food safety, medical devices, gas smell, 911]
-  - title: How Power Restoration Works at Consumers Energy
-    description: Overview of restoration priorities (substations, critical facilities, then neighborhood circuits) and why neighbors are restored at different times.
-    key_topics: [restoration priority, substations, critical facilities, circuits, mutual aid]
-  - title: Reporting an Outage or Hazard
-    description: How to report an outage or hazard, what details to provide, and what to expect after reporting.
-    key_topics: [reporting, hazard, downed tree, app, phone, expectations]
-  - title: After the Power Comes Back
-    description: Post-restoration checklist covering breakers, food spoilage, appliances, and what to do if power is still out.
-    key_topics: [breakers, food safety, appliances, partial outage, still out]
+  - title: CRE Underwriting Playbook
+    description: Hudson Advisors standards for underwriting assumptions, cap rate ranges, and stress tests.
+    key_topics: [cap rate, underwriting assumptions, stress test, exit strategy]
+
+  - title: Diligence Checklist Standards
+    description: Required diligence categories and completion criteria across legal, financial, physical, and environmental workstreams.
+    key_topics: [legal diligence, environmental, title review, financial audit]
+
+  - title: US CRE Market Reports
+    description: Quarterly market context by metro and property type covering rents, vacancy, and cap rate trends.
+    key_topics: [market rents, vacancy, submarket trends, cap rate benchmarks]
+
+  - title: Investment Committee Memo Template
+    description: Standard structure for IC memos including deal thesis, risks, returns, and recommendation.
+    key_topics: [IC memo, deal thesis, risk factors, recommendation]
 
 starter_questions:
-  - Is there a power outage at my address right now?
-  - When will my power be restored?
-  - I see a downed wire near my house - what should I do?
-  - Why does my neighbor have power but I do not?
-  - Is my food in the fridge still safe to eat?
+  - Show comps for a Class A office in Dallas
+  - What is the cap rate range for industrial in Phoenix?
+  - Summarize diligence status for deal HA-1042
+  - Which deals have open red flags this week?
 
 demo_persona:
-  name: Linda Hoffman
-  role: Residential customer in Kent County, Michigan with two kids and a medically required CPAP machine
+  name: Morgan Chen
+  role: Senior Acquisitions Analyst
 
 foundry_iq:
-  index_name: consumers-knowledge
+  index_name: hudson-advisors-knowledge
   chunking:
     chunk_size: 1024
     overlap: 128

@@ -66,58 +66,38 @@ system_prompt: |
   <specific focus from spec.yaml agents[].system_prompt_focus>
 
   ## Database (Azure Cosmos DB NoSQL)
-  <list all tables from manifest.tables[] with field descriptions>
+  <list ONLY the tables this specialist owns; describe each field the
+  specialist queries and enumerate controlled-vocabulary values (status,
+  priority, credit tier, etc.) with which values count as "open" /
+  "closed" / equivalent>
 
-  ## Query syntax — Cosmos SQL (NOT PostgreSQL)
-  Every field reference MUST be prefixed with the container alias `c.`,
-  including inside SELECT projections. Cosmos rejects bare identifiers
-  (error SC2001 "Identifier ... could not be resolved").
-
-  CORRECT:
-    SELECT c.col1, c.col2, c.col3
-    FROM c
-    WHERE c.status IN (<valid status enum>)
-      AND c.<date_field> <= @cutoff
-    ORDER BY c.<date_field> ASC
-    OFFSET 0 LIMIT 20
-
-  WRONG (fails with SC2001):
-    SELECT col1, col2 FROM c WHERE status = 'open'
-
-  Parameters format: [{"name": "@paramName", "value": "value"}]
-
-  Always use parameterized queries. Never string-interpolate values.
-  Use enable_cross_partition_query=True only when partition key is unknown.
-  When the schema uses controlled vocabularies (e.g. status, priority),
-  enumerate the valid values in the agent.yaml schema block and explicitly
-  state which values count as "open" / "closed" / equivalent.
-
-  ## Tools available
-  - run_sql_query(query, params, container): Query a Cosmos DB container
-  - search_knowledge_base(query): Semantic search across operational documents
-  <add call_mock_api only if mock_api enabled>
-
-  ## Response format
-  CRITICAL: Your ENTIRE response MUST be a single valid JSON object and
-  nothing else. No markdown headings, no `### Summary`, no prose before or
-  after, no ```json code fences. The frontend parses your response with
-  `JSON.parse(response)` and any non-JSON characters will break rendering.
-
-  Return a single JSON object with at least:
-  - summary: concise answer
-  - confidence: 0.0-1.0
-  - data_sources: list of containers or documents queried
-  - recommended_action: what the user should do next
-  - suggested_questions: 2-3 short follow-up questions (strings) the user
-    is likely to ask next; the UI renders them as clickable chips
-  - <domain_array>: list of data rows returned (work_orders / technicians /
-    timeline / positions / etc. — match the agent's primary entity)
-
-  MANDATORY: Whenever you queried data via run_sql_query or call_mock_api,
-  you MUST populate the domain array with the actual rows returned (up to
-  20). Do NOT summarize them away into prose. The UI renders this array
-  as a table — if it is missing or empty, the user sees no data.
+  ## Specialist output keys
+  In addition to the shared response contract (summary / confidence /
+  data_sources / recommended_action / suggested_questions), this
+  specialist must also return:
+  - <specialist_domain_array> (array of objects) — the rows returned
+    from the specialist's primary container. MANDATORY whenever
+    run_sql_query was called; the UI renders this as a table. Do NOT
+    summarize the rows away into prose.
+  - <any specialist-specific fields from spec.yaml agents[].response_format>
 ```
+
+**DO NOT include the following boilerplate blocks in `system_prompt`** — they
+are prepended automatically at runtime by
+`register_agents.py._instructions_from_config()` from the shared file
+`agents/system_prompt_preamble.md`:
+
+- Cosmos SQL syntax rules (the `c.` prefix, parameter format, `IS_DEFINED`,
+  `ARRAY_CONTAINS`, `LIMIT` vs `TOP`, no-joins, aggregates)
+- Tool signatures (`run_sql_query`, `search_knowledge_base`, `call_mock_api`)
+- JSON-only response format contract and the shared required keys
+  (`summary`, `confidence`, `data_sources`, `recommended_action`,
+  `suggested_questions`)
+
+Keeping specialists boilerplate-free cuts LLM generation time in this step
+by roughly 30 % per agent and keeps the tool/output contract in one place.
+When the contract changes, edit `system_prompt_preamble.md`; do not
+regenerate all agent.yaml files.
 
 ---
 

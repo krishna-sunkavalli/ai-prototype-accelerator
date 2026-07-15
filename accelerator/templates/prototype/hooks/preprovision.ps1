@@ -32,62 +32,14 @@ if ($ENV_FAILED) { exit 1 }
 Write-Host "   ✅ Environment valid"
 Write-Host ""
 
-# ── Step 2: Quota check — runs BEFORE Bicep what-if ──────────────────────────
-# Models injected by Copilot from spec.yaml Section 5b
-# Format: "model-name:required-capacity-in-k-tpm"
-Write-Host "2️⃣  Checking model quota in $AI_REGION..."
-$MODELS = @(
-    "gpt-4o:10",
-    "gpt-4o-mini:10",
-    "gpt-4-1:10"
-)
-$QUOTA_FAILED = $false
-
-foreach ($entry in $MODELS) {
-    $parts    = $entry -split ':'
-    $MODEL    = $parts[0]
-    $REQUIRED = [int]$parts[1]
-
-    Write-Host "   Checking $MODEL (required: ${REQUIRED}k TPM)..."
-
-    $AVAILABLE = az cognitiveservices usage list `
-        --location $AI_REGION `
-        --query "[?contains(name.value, '$MODEL')].limit" `
-        --output tsv 2>$null | Select-Object -First 1
-
-    $CURRENT = az cognitiveservices usage list `
-        --location $AI_REGION `
-        --query "[?contains(name.value, '$MODEL')].currentValue" `
-        --output tsv 2>$null | Select-Object -First 1
-
-    if ([string]::IsNullOrEmpty($AVAILABLE)) {
-        Write-Host "   ⚠️  $MODEL — quota data unavailable, proceeding"
-    } else {
-        $REMAINING = [int]$AVAILABLE - [int]$CURRENT
-        if ($REMAINING -lt $REQUIRED) {
-            Write-Host "   ❌ $MODEL — insufficient quota"
-            Write-Host "      Available: ${AVAILABLE}k, Used: ${CURRENT}k, Remaining: ${REMAINING}k, Required: ${REQUIRED}k"
-            $QUOTA_FAILED = $true
-        } else {
-            Write-Host "   ✅ $MODEL — quota OK (${REMAINING}k remaining)"
-        }
-    }
-}
-
-if ($QUOTA_FAILED) {
-    Write-Host ""
-    Write-Host "❌ Quota check failed. Options:"
-    Write-Host "   1. Change azure_region in spec.yaml"
-    Write-Host "   2. Request quota: aka.ms/oai-quota"
-    Write-Host "   3. Reduce model capacity in spec.yaml Section 5b"
-    exit 1
-}
-Write-Host "✅ Model quota check complete"
-Write-Host ""
-
-# ── Step 3: Regional service availability ─────────────────────────────────────
-Write-Host "3️⃣  Checking service availability in $REGION..."
-
+# ── Step 2: Ensure Microsoft.App provider is registered ──────────────────────
+# Container Apps is the runtime target; azd fails silently later if the
+# provider is not registered on this subscription. Model TPM quota, AI
+# Search regional capacity, and Cosmos regional AZ support are now checked
+# in accelerator/generators/preflight.py before this hook ever runs; we
+# leave provider registration here as a self-healing safety net for shells
+# where preflight was skipped.
+Write-Host "2️⃣  Ensuring Microsoft.App provider is registered..."
 $CA_CHECK = az provider show `
     --namespace Microsoft.App `
     --query "registrationState" `
@@ -97,11 +49,11 @@ if ($CA_CHECK -ne "Registered") {
     Write-Host "   ⚠  Microsoft.App not registered — registering..."
     az provider register --namespace Microsoft.App --wait --output none
 }
-Write-Host "   ✅ Services available in $REGION"
+Write-Host "   ✅ Microsoft.App registered"
 Write-Host ""
 
-# ── Step 4: Create or confirm resource group ──────────────────────────────────
-Write-Host "4️⃣  Ensuring resource group exists..."
+# ── Step 3: Create or confirm resource group ──────────────────────────────────
+Write-Host "3️⃣  Ensuring resource group exists..."
 az group create `
     --name $RESOURCE_GROUP `
     --location $REGION `
@@ -109,27 +61,37 @@ az group create `
 Write-Host "   ✅ Resource group ready: $RESOURCE_GROUP"
 Write-Host ""
 
-# ── Step 5: Bicep what-if validation ──────────────────────────────────────────
-Write-Host "5️⃣  Running Bicep what-if validation..."
-$whatIfResult = az deployment group what-if `
-    --resource-group $RESOURCE_GROUP `
-    --template-file infra/main.bicep `
-    --parameters infra/main.bicepparam `
-    --result-format FullResourcePayloads `
-    --output table
-
-$WHATIF_EXIT = $LASTEXITCODE
-Write-Host $whatIfResult
-
-if ($WHATIF_EXIT -ne 0) {
+# ── Step 4: Bicep what-if validation ──────────────────────────────────────────
+# Devlead sets SKIP_PREPROV_WHATIF=true via `azd env set` because Phase 2
+# preflight (accelerator/generators/preflight.py) already ran what-if before
+# `azd up` fired. When the user invokes `azd up` outside devlead, the var is
+# unset and this belt-and-braces check still runs.
+$SKIP_WHATIF = $env:SKIP_PREPROV_WHATIF
+if ($SKIP_WHATIF -eq "true") {
+    Write-Host "4️⃣  Skipping Bicep what-if (preflight already validated)"
     Write-Host ""
-    Write-Host "   ❌ Bicep what-if failed."
-    Write-Host "   Fix errors above before running azd up again."
-    exit 1
+} else {
+    Write-Host "4️⃣  Running Bicep what-if validation..."
+    $whatIfResult = az deployment group what-if `
+        --resource-group $RESOURCE_GROUP `
+        --template-file infra/main.bicep `
+        --parameters infra/main.bicepparam `
+        --result-format FullResourcePayloads `
+        --output table
+
+    $WHATIF_EXIT = $LASTEXITCODE
+    Write-Host $whatIfResult
+
+    if ($WHATIF_EXIT -ne 0) {
+        Write-Host ""
+        Write-Host "   ❌ Bicep what-if failed."
+        Write-Host "   Fix errors above before running azd up again."
+        exit 1
+    }
+    Write-Host ""
+    Write-Host "   ✅ Bicep what-if passed"
+    Write-Host ""
 }
-Write-Host ""
-Write-Host "   ✅ Bicep what-if passed"
-Write-Host ""
 
 # ── Done ──────────────────────────────────────────────────────────────────────
 Write-Host "✅ All pre-provision checks passed."

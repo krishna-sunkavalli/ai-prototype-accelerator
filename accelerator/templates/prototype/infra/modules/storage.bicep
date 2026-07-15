@@ -1,6 +1,6 @@
 // ============================================================
 // storage.bicep — Azure Blob Storage (GPv2)
-// AVM module: br/public:avm/res/storage/storage-account:0.32.0
+// AVM module: br/public:avm/res/storage/storage-account:0.32.1
 // ============================================================
 
 @description('Base name prefix for all resources.')
@@ -19,7 +19,7 @@ param managedIdentityPrincipalId string
 // Name must be 3-24 lowercase alphanumeric characters only — strip hyphens.
 var storageAccountName = take(toLower(replace('${resourcePrefix}st', '-', '')), 24)
 
-module storageAccount 'br/public:avm/res/storage/storage-account:0.32.0' = {
+module storageAccount 'br/public:avm/res/storage/storage-account:0.32.1' = {
   name: 'deploy-storage'
   params: {
     name: storageAccountName

@@ -55,6 +55,12 @@ param aiLocation = readEnvironmentVariable('AZURE_AI_LOCATION', '{{AI_REGION}}')
 // `location` when no override is set.
 param searchLocation = readEnvironmentVariable('AZURE_SEARCH_LOCATION', '{{AZURE_REGION}}')
 
+// AI Search SKU. `basic` is the default; bump to `standard` (or higher)
+// with `azd env set AZURE_SEARCH_SKU standard` when Basic is capacity-
+// exhausted region-wide. Never use `free` — its 3-index cap conflicts
+// with the demo's knowledge index.
+param searchSku = readEnvironmentVariable('AZURE_SEARCH_SKU', 'basic')
+
 // ── Branding (Step 2b: populated from spec.yaml by Copilot) ──
 
 // Customer display name shown in the UI header.
