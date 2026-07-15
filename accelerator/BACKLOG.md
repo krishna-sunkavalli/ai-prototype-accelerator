@@ -57,6 +57,10 @@ Update the **Status** column when work starts / ships. Move ✅ shipped items to
 - **Fix proposal:** [`accelerator/scripts/build-metrics.py`](scripts/build-metrics.py) tracks per-step start/end times and reports cumulative "active step time" separately from wall-clock. Useful for accelerator benchmarking; currently the wall-clock number is misleading.
 - **Owner / target:** Low priority.
 
+### 11. AI Search serialized behind the Foundry hub during provisioning
+- **Status:** ✅ Shipped 2026-07-15 — Search extracted into its own [`search.bicep`](templates/prototype/infra/modules/search.bicep) module with no params/dependency on the Foundry hub. Previously `searchService` lived inside `foundry-iq.bicep`, whose module invocation in `main.bicep` took `hubAccountName: foundry.outputs.aiHubName`, forcing ARM to serialize the *entire* module — including the unrelated Search resource — behind Foundry account creation (which includes subdomain-reservation checks and is often the slowest single resource). Search has no actual ARM dependency on Foundry; the vector-index-to-embedding-model wiring happens later in Python (postprovision). `main.bicep` now declares `module search` alongside `module foundry`/`module openAi` with no cross-dependency, so Azure schedules them in parallel — worth roughly 2-5 min off provisioning time. `foundry-iq.bicep` is now model-deployments-only.
+- **Owner / target:** Done.
+
 ---
 
 ## Priority 4 — Won't do: architectural non-goals

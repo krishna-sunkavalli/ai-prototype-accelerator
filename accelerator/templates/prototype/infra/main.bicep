@@ -178,21 +178,31 @@ module foundry './modules/foundry.bicep' = {
   }
 }
 
-// ── AI Models + Search (foundry-iq) ──────────────────────────
-// Adds model deployments to the hub account + provisions AI Search.
-// No separate OpenAI account is created.
+// ── AI Models (foundry-iq) ───────────────────────────────────
+// Adds model deployments to the hub account. No separate OpenAI
+// account is created.
 module openAi './modules/foundry-iq.bicep' = {
   name: 'deploy-foundry-iq'
   params: {
-    resourcePrefix: resourcePrefix
-    location: location
-    searchLocation: searchLocation
-    searchSku: searchSku
     hubAccountName: foundry.outputs.aiHubName
-    tags: commonTags
-    managedIdentityPrincipalId: identity.outputs.principalId
     modelDeployments: modelDeployments
     embeddingCapacity: embeddingCapacity
+  }
+}
+
+// ── Azure AI Search ───────────────────────────────────────────
+// No dependency on the foundry module — ARM provisions this in
+// parallel with the Foundry hub instead of serializing behind it
+// (foundry account creation includes subdomain-reservation checks
+// that are often the slowest single resource in the deployment).
+module search './modules/search.bicep' = {
+  name: 'deploy-search'
+  params: {
+    resourcePrefix: resourcePrefix
+    location: searchLocation
+    searchSku: searchSku
+    tags: commonTags
+    managedIdentityPrincipalId: identity.outputs.principalId
   }
 }
 
@@ -210,7 +220,7 @@ module app './modules/container-app.bicep' = {
     cosmosEndpoint: cosmos.outputs.cosmosEndpoint
     cosmosDatabaseName: cosmos.outputs.cosmosDatabaseName
     cosmosAccountName: cosmos.outputs.cosmosAccountName
-    searchEndpoint: openAi.outputs.searchEndpoint
+    searchEndpoint: search.outputs.searchEndpoint
     searchIndexName: searchIndexName
     acrLoginServer: acr.outputs.loginServer
     storageAccountName: storage.outputs.storageAccountName
@@ -299,7 +309,7 @@ output AZURE_CONTAINER_APP_URL string = 'https://${app.outputs.containerAppFqdn}
 output AZURE_CLIENT_ID string = identity.outputs.clientId
 
 @description('AI Search endpoint — used as AZURE_SEARCH_ENDPOINT by tests.')
-output AZURE_SEARCH_ENDPOINT string = openAi.outputs.searchEndpoint
+output AZURE_SEARCH_ENDPOINT string = search.outputs.searchEndpoint
 
 @description('AI Hub name — used as AZURE_AI_HUB_NAME by tests.')
 output AZURE_AI_HUB_NAME string = foundry.outputs.aiHubName

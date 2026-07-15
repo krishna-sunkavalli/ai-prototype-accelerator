@@ -109,6 +109,7 @@ def check_required_paths(errors: list[str]) -> None:
         PROTO / "infra" / "main.bicep",
         PROTO / "infra" / "main.bicepparam",
         PROTO / "infra" / "modules" / "foundry-iq.bicep",
+        PROTO / "infra" / "modules" / "search.bicep",
         PROTO / "azure.yaml",
         PROTO / "Dockerfile",
         PROTO / "backend" / "main.py",
