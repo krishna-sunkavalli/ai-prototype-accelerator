@@ -80,7 +80,7 @@ def search_knowledge_base(query: str) -> str:
 
     except Exception as e:
         logger.error("search_knowledge_base failed: %s", e)
-        return f"Search unavailable: {str(e)}"
+        return "Search unavailable right now."
 
 
 def _log_search(query: str, result_count: int) -> None:

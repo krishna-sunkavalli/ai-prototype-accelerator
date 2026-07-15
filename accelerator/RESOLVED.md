@@ -644,3 +644,54 @@ the marker check, so the gate always evaluated false.
 **Prevention:** When gating on azd failure text, always scan combined
 stdout+stderr — azd does not consistently put related progress/error lines on
 the same stream.
+
+---
+
+## 27. Specialist agents leaked raw technical error detail to end users on tool failure
+
+**Symptom:** When a tool call failed (e.g. Cosmos DB unreachable behind the
+MCAPS firewall — see KNOWN_ISSUES #2), the specialist's chat reply exposed
+internal remediation language directly to the end user, e.g. "Check the query
+syntax or retry the query execution... consult database logs" and "validate
+database access credentials and container schema." Confusing and inappropriate
+for a business chat UI, and a minor information-disclosure smell (implies
+infra detail exists to guess at).
+
+**Root cause:** Two tool functions returned/raised raw exception text that
+flows straight into the model's context:
+- `search_tool.py`'s `search_knowledge_base()` returned
+  `f"Search unavailable: {str(e)}"` — the raw SDK exception string became the
+  tool's "result", which the model then paraphrased back to the user.
+- `sql_tool.py`'s `run_sql_query()` did a bare `raise` after logging. Per
+  `orchestrator.py`'s own docstring, MAF's `FunctionInvocationLayer` handles
+  "local Python tool → result string → Foundry" — it catches the raised
+  exception and serializes it into the tool-result text sent to the model,
+  so the raw Cosmos/SDK exception (firewall detail, IPs, etc.) reached the
+  LLM, which then invented a plausible-sounding "IT support" narrative around
+  it.
+- No instruction existed anywhere in the shared `system_prompt_preamble.md`
+  telling specialists how to behave on a tool failure.
+
+**Fix (applied to accelerator, all three layers):**
+- `search_tool.py` now returns a generic `"Search unavailable right now."` on
+  failure; `logger.error(...)` still captures full detail server-side.
+- `sql_tool.py`'s `run_sql_query` now raises
+  `RuntimeError("The requested data is temporarily unavailable.") from exc`
+  instead of re-raising the raw exception — `from exc` keeps the real
+  traceback in server logs without exposing it to the model.
+- `system_prompt_preamble.md` gained a new "Tool failures — never expose
+  technical details to the user" section (prepended to every specialist
+  automatically at runtime by `register_agents.py`) specifying: brief
+  plain-language apology, low `confidence` (0.1-0.3), a user-appropriate
+  `recommended_action` (never "check logs/credentials/schema/query syntax"),
+  full JSON contract preserved, domain array left empty (`[]`).
+
+**Why both tool-layer and prompt-layer fixes:** defense in depth — prompt-only
+instructions aren't fully reliable (a model can still leak detail present in
+text it was given despite being told not to). Sanitizing the tool's own error
+string removes the raw material entirely; the prompt rule catches any
+residual case.
+
+**Scope note:** this fixes the template source for all *future* builds. An
+already-deployed prototype's Container App image has the old tool files
+baked in and needs a rebuild + redeploy to pick this up.

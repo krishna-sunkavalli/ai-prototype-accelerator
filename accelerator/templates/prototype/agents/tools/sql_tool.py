@@ -168,7 +168,10 @@ def run_sql_query(query: str, params: list | None = None, container: str | None 
     except Exception as exc:
         logger.error("run_sql_query FAILED | container=%s | query=%.200s | params=%s | error=%s",
                      container, cosmos_query, cosmos_params, exc)
-        raise
+        # Never let the raw SDK/Cosmos exception (which can include hostnames,
+        # IPs, or firewall/policy detail) propagate to MAF's tool-result text —
+        # that string is what the model sees and may paraphrase back to the user.
+        raise RuntimeError("The requested data is temporarily unavailable.") from exc
 
 
 # ── Tool functions ─────────────────────────────────────────────────────────────
