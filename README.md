@@ -45,6 +45,17 @@ The accelerator uses two Copilot agents that hand off in sequence.
 
 Edit `spec.yaml` and run `@devlead build` again. The build is **incremental**: per-step input fingerprints (see `accelerator/scripts/plan-rebuild.py`) rerun only the steps your edit touches — a branding change rehydrates config without regenerating seed data, agents, or documents, and derived Azure resource names stay stable across iterations.
 
+**Optional — headless build (CI / unattended / fastest wall-clock)**
+
+Teams with their own OpenAI-compatible endpoint can run the whole pipeline without Copilot:
+
+```bash
+export BUILD_LLM_ENDPOINT=https://<your-aoai>.openai.azure.com BUILD_LLM_API_KEY=... BUILD_LLM_DEPLOYMENT=gpt-4o
+py -3 accelerator/scripts/build.py
+```
+
+The driver runs generation steps 3–5 **in parallel** and overlaps them with `azd provision`, so a first build costs roughly provisioning time alone. `@devlead build` remains the primary flow and requires nothing but Copilot.
+
 **Step 4 — Graduate the prototype**
 
 ```text
