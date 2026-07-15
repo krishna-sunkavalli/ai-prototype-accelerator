@@ -5,6 +5,16 @@
 # Actions: RBAC assignments, Cosmos seed, doc upload, search index, agent registration
 set -euo pipefail
 
+# Headless-driver overlap: build.py runs `azd provision` concurrently with
+# the LLM generation steps, so at provision-complete time the seed script /
+# agent definitions / knowledge docs may not exist yet. The driver sets
+# BUILD_DEFER_HOOKS=true for that provision and re-runs this hook itself
+# (azd hooks run postprovision) once generation has finished.
+if [ "${BUILD_DEFER_HOOKS:-}" = "true" ]; then
+  echo "postprovision: deferred — headless driver will run this after generation completes."
+  exit 0
+fi
+
 echo "=================================================================="
 echo "  ai-prototype-accelerator -- Post-Provision"
 echo "  {{CUSTOMER_NAME}} — {{USE_CASE_TITLE}}"
