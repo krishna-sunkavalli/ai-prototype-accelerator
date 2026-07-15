@@ -16,6 +16,7 @@ manifest at runtime.
 
 ## Prerequisite
 Read generated/build-state/manifest.json first. If missing, stop — tell user to run devlead.
+Record the step clock: `py -3 accelerator/scripts/build-metrics.py step-start 02-infra-agent`.
 
 ## Inputs
 Read: generated/build-state/manifest.json

@@ -22,6 +22,7 @@ Check that these sentinels exist:
 - generated/build-state/06-backend-agent.done
 
 If any prerequisite is missing, stop.
+Record the step clock: `py -3 accelerator/scripts/build-metrics.py step-start 07-hook-agent`.
 
 ## Inputs
 Read: generated/build-state/manifest.json

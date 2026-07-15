@@ -16,6 +16,7 @@ runtime and registers each one — no per-prototype emission needed.
 
 ## Prerequisite
 Read generated/build-state/manifest.json first. If missing, stop.
+Record the step clock: `py -3 accelerator/scripts/build-metrics.py step-start 04-agents-builder`.
 
 ## Inputs
 Read: generated/build-state/manifest.json

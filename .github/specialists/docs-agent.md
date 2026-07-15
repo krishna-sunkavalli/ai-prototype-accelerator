@@ -15,6 +15,7 @@ Quality matters — more content and higher specificity = better semantic search
 Read generated/build-state/manifest.json first.
 Read spec.yaml documents[] section for titles and key_topics.
 If manifest.json missing, stop.
+Record the step clock: `py -3 accelerator/scripts/build-metrics.py step-start 05-docs-agent`.
 
 ## Inputs
 Read: generated/build-state/manifest.json

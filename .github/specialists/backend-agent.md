@@ -12,6 +12,7 @@ This is the ONLY file generated in emitted backend/. Everything else is scaffold
 
 ## Prerequisite
 Read generated/build-state/manifest.json first. If missing, stop.
+Record the step clock: `py -3 accelerator/scripts/build-metrics.py step-start 06-backend-agent`.
 
 ## Inputs
 Read: generated/build-state/manifest.json

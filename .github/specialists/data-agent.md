@@ -18,6 +18,7 @@ Database: Azure Cosmos DB NoSQL API, Serverless SKU.
 
 ## Prerequisite
 Read `generated/build-state/manifest.json` first. If missing, stop.
+Record the step clock: `py -3 accelerator/scripts/build-metrics.py step-start 03-data-agent`.
 
 ## Inputs
 Read: `generated/build-state/manifest.json`

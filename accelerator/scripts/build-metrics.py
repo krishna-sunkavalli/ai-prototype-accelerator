@@ -13,12 +13,20 @@ Usage:
     py -3 accelerator/scripts/build-metrics.py record deploy-start
     py -3 accelerator/scripts/build-metrics.py record deploy-done
     py -3 accelerator/scripts/build-metrics.py record verify-done
+    py -3 accelerator/scripts/build-metrics.py step-start <sentinel-name>
     py -3 accelerator/scripts/build-metrics.py summary
 
 `record --keep-existing` is for resume: it preserves the original clock
 instead of restarting it. `deploy-start` is recorded by devlead immediately
 before `azd up`, so `summary` can split generation time from provisioning
-time from verification time. `summary` prints a per-step timeline, a phase
+time from verification time. `step-start <sentinel-name>` is recorded by
+each specialist right after it reads manifest.json and before it starts
+producing outputs (e.g. `step-start 02-infra-agent`) — pairing that with
+the step's `.done` sentinel `completedAt` timestamp lets `summary` split
+each step's own "active" work time from the "idle" time spent waiting
+between the previous step finishing and this one starting (Copilot
+reasoning, tool round-trips, user reading the progress table, etc).
+`summary` prints a per-step timeline, a phase breakdown, an active-vs-idle
 breakdown, and the headline total; its last line is designed to drop
 straight into the devlead's final summary block.
 """
@@ -44,6 +52,7 @@ STEPS: list[tuple[str, str]] = [
 ]
 
 _EVENTS = ("build-start", "deploy-start", "deploy-done", "verify-done")
+_STEP_NAMES = {sentinel_name for sentinel_name, _ in STEPS}
 
 
 def _now_iso() -> str:
@@ -62,10 +71,13 @@ def _parse_iso(value: str) -> datetime | None:
 def _load_metrics() -> dict:
     if METRICS_PATH.exists():
         try:
-            return json.loads(METRICS_PATH.read_text(encoding="utf-8"))
+            data = json.loads(METRICS_PATH.read_text(encoding="utf-8"))
+            data.setdefault("events", {})
+            data.setdefault("stepStarts", {})
+            return data
         except json.JSONDecodeError:
             pass
-    return {"events": {}}
+    return {"events": {}, "stepStarts": {}}
 
 
 def _fmt_duration(seconds: float) -> str:
@@ -89,6 +101,21 @@ def record(event: str, keep_existing: bool) -> int:
     return 0
 
 
+def step_start(sentinel_name: str) -> int:
+    if sentinel_name not in _STEP_NAMES:
+        print(
+            f"ERROR: unknown step '{sentinel_name}' (allowed: {', '.join(sorted(_STEP_NAMES))})",
+            file=sys.stderr,
+        )
+        return 1
+    STATE.mkdir(parents=True, exist_ok=True)
+    metrics = _load_metrics()
+    metrics["stepStarts"][sentinel_name] = _now_iso()
+    METRICS_PATH.write_text(json.dumps(metrics, indent=2), encoding="utf-8")
+    print(f"recorded step-start {sentinel_name}: {metrics['stepStarts'][sentinel_name]}")
+    return 0
+
+
 def summary() -> int:
     metrics = _load_metrics()
     events = metrics.get("events", {})
@@ -109,6 +136,9 @@ def summary() -> int:
 
     print("Build timeline")
     last: datetime = start
+    total_active = 0.0
+    total_idle = 0.0
+    step_starts = metrics.get("stepStarts", {})
     for sentinel_name, label in STEPS:
         path = STATE / f"{sentinel_name}.done"
         completed = None
@@ -126,7 +156,18 @@ def summary() -> int:
             # the step wasn't re-run, so it contributes no time.
             print(f"  t+  0:00  {label:<24} (reused from earlier build)")
             continue
-        print(f"  t+{int(offset // 60):3d}:{int(offset % 60):02d}  {label}")
+        step_start_ts = _parse_iso(step_starts.get(sentinel_name, ""))
+        if step_start_ts is not None and step_start_ts <= completed:
+            active_secs = (completed - step_start_ts).total_seconds()
+            idle_secs = max(0.0, (step_start_ts - last).total_seconds())
+            total_active += active_secs
+            total_idle += idle_secs
+            print(
+                f"  t+{int(offset // 60):3d}:{int(offset % 60):02d}  {label:<24} "
+                f"active {_fmt_duration(active_secs)}, idle {_fmt_duration(idle_secs)}"
+            )
+        else:
+            print(f"  t+{int(offset // 60):3d}:{int(offset % 60):02d}  {label}")
         last = max(last, completed)
 
     for event, label in (("deploy-start", "Deploy started"), ("deploy-done", "Deploy to Azure"), ("verify-done", "Verify deployment")):
@@ -155,6 +196,17 @@ def summary() -> int:
                 print(f"  Verification : {_fmt_duration(verify_secs)}")
         print()
 
+    # ── Active vs idle breakdown ─────────────────────────────────────
+    # Only rendered for steps that had a recorded step-start; older
+    # metrics.json files (no stepStarts) or steps whose specialist
+    # skipped the step-start call fall back silently — no error, just
+    # no line here.
+    if total_active or total_idle:
+        print("Active vs idle (steps with a recorded start)")
+        print(f"  Active work  : {_fmt_duration(total_active)}")
+        print(f"  Idle/waiting : {_fmt_duration(total_idle)}")
+        print()
+
     total = (last - start).total_seconds()
     if _parse_iso(events.get("verify-done", "")):
         headline = f"Spec -> deployed, verified product: {_fmt_duration(total)}"
@@ -173,9 +225,11 @@ def main() -> int:
         return 1
     if args[0] == "record" and len(args) >= 2:
         return record(args[1], keep_existing="--keep-existing" in args)
+    if args[0] == "step-start" and len(args) >= 2:
+        return step_start(args[1])
     if args[0] == "summary":
         return summary()
-    print(f"ERROR: unknown command {args[0]!r} — use 'record <event>' or 'summary'", file=sys.stderr)
+    print(f"ERROR: unknown command {args[0]!r} — use 'record <event>', 'step-start <name>', or 'summary'", file=sys.stderr)
     return 1
 
 

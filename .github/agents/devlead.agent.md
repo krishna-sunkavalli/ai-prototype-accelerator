@@ -47,7 +47,7 @@ User-visible output rules (STRICT — no exceptions):
 10. For any architecture ambiguity, read `.github/architecture-reference.md` before deciding; do not assume behavior not represented there or in generated artifacts.
 11. If `spec.yaml` is incomplete, ambiguous, or missing decisions needed for generation, stop and tell the user to return to `@business-analyst` to finish `spec.yaml`. Never collect that missing information yourself.
 
-Step 1 is fully scripted by `accelerator/generators/spec-validator.py` (it validates the spec, derives resource names, writes `manifest.json`, and writes `01-spec-validator.done`). Run that script — do not hand-author `manifest.json`.
+Step 1 is fully scripted by `accelerator/generators/spec-validator.py` (it validates the spec, derives resource names, writes `manifest.json`, and writes `01-spec-validator.done`). Before running it, record the step clock: `py -3 accelerator/scripts/build-metrics.py step-start 01-spec-validator`. Run that script — do not hand-author `manifest.json`.
 
 ---
 
