@@ -34,12 +34,9 @@ Update the **Status** column when work starts / ships. Move ✅ shipped items to
 - **Owner / target:** Done. Move to RESOLVED.md on the next housekeeping pass.
 
 ### 5. `spec.yaml` tool names don't match runtime tool names
-- **Status:** Open
-- **Symptom:** `spec.yaml` uses friendly names (`[search_tool, sql_tool]`), but the runtime catalog in [`tool_definitions.yaml`](templates/prototype/agents/tools/tool_definitions.yaml) uses canonical names (`[run_sql_query, search_knowledge_base, call_mock_api]`). The [agents-builder specialist](../.github/specialists/agents-builder.md) hand-translates at emission time. If an LLM slips through a wrong name in the emitted `agent.yaml`, [`register_agents.py`](templates/prototype/agents/register_agents.py) fails at runtime with a helpful but late error, and no earlier gate catches it.
-- **Fix proposal:** Two options — pick one.
-  - **(a)** [`spec-validator.py`](generators/spec-validator.py) maps spec-level tool names to runtime names and rejects unknowns at spec time; manifest carries canonical names.
-  - **(b)** [`preflight.py`](generators/preflight.py) scans `generated/prototype/agents/specialists/*/agent.yaml` and rejects unknown tool names before deploy.
-- **Owner / target:** Unassigned. Option (a) is cleaner (fail early); option (b) is a smaller change.
+- **Status:** ✅ Shipped (verified 2026-07-15) — option (b) is implemented: `check_tools_resolve()` in [`preflight.py`](generators/preflight.py) scans every emitted `generated/prototype/agents/specialists/*/agent.yaml`, loads the canonical name set from `tool_definitions.yaml`, and hard-fails preflight if any tool isn't recognized. Wired into `main()`'s Phase 2 gate list, so a bad translation from the agents-builder specialist is caught before `azd up` rather than surfacing as a late `register_agents.py` runtime error.
+- **Symptom (historical):** `spec.yaml` uses friendly names (`[search_tool, sql_tool]`), but the runtime catalog in [`tool_definitions.yaml`](templates/prototype/agents/tools/tool_definitions.yaml) uses canonical names (`[run_sql_query, search_knowledge_base, call_mock_api]`). The [agents-builder specialist](../.github/specialists/agents-builder.md) hand-translates at emission time; a slipped name used to only surface as a late runtime error.
+- **Owner / target:** Done. Move to RESOLVED.md on the next housekeeping pass. Option (a) — validating friendly-name → canonical mapping at spec time in `spec-validator.py` — remains a nice-to-have for fail-even-earlier feedback, but is no longer required to prevent bad deploys.
 
 ### 6. `preflight.py` soft-skips on expired `az` token
 - **Status:** ✅ Shipped 2026-07-13 — [`check_az_logged_in`](generators/preflight.py) in phase-1 preflight runs `az account show` upfront and hard-fails on `AADSTS70043` / refresh-token-expired errors with the exact copy-pasteable `az login --scope https://management.core.windows.net//.default` command. The what-if soft-skip pattern still exists for other cases (RG not created yet, offline), but token expiry now surfaces at the earliest possible point.
