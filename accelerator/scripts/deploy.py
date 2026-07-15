@@ -109,7 +109,8 @@ def _run(cmd: list[str], cwd: pathlib.Path | None = None, *, dry_run: bool = Fal
     print(f"  $ {printable}")
     return subprocess.run(
         cmd, cwd=str(cwd) if cwd else None,
-        capture_output=capture, text=True, shell=False, timeout=timeout,
+        capture_output=capture, text=True, encoding="utf-8", errors="replace",
+        shell=False, timeout=timeout,
     )
 
 
@@ -201,6 +202,8 @@ def _run_azd_up(azd: str, *, dry_run: bool) -> subprocess.CompletedProcess:
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         shell=False,
     )
     stderr_chunks: list[str] = []
@@ -255,11 +258,15 @@ def main() -> int:
             print("deploy: azd up succeeded")
             return 0
 
-        stderr_lower = (result.stderr or "").lower()
+        # azd prints the "Failed: Search service: ..." progress line to
+        # stdout and the InsufficientResourcesAvailable error detail to
+        # stderr — neither stream alone reliably contains both markers, so
+        # scan the combined output.
+        combined_lower = ((result.stdout or "") + "\n" + (result.stderr or "")).lower()
         if (
             args.skip_search_swap
             or swap_attempts >= args.max_search_swaps
-            or not _looks_like_search_capacity_error(stderr_lower)
+            or not _looks_like_search_capacity_error(combined_lower)
         ):
             print(f"deploy: azd up failed with exit {result.returncode}", file=sys.stderr)
             return 1

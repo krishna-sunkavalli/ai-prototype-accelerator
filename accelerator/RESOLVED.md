@@ -592,3 +592,55 @@ Phase breakdown
 Validated with `az bicep build` (0 errors) and the full contract test suite (58 tests passing). Phase-2 preflight cold-run stayed at ~37 s; warm caches skip the Bicep build.
 
 **Prevention:** Consider adding a periodic `version-drift.py` script that queries the Bicep resource-type catalog and AVM registry for latest versions and fails CI when the templates drift more than one minor behind. Filed as future BACKLOG.
+
+---
+
+## 25. `deploy.py` crashed with `UnicodeDecodeError` streaming `azd up` output on Windows
+
+**Symptom:** `py accelerator/scripts/deploy.py` aborted mid-provision with
+`UnicodeDecodeError: 'charmap' codec can't decode byte 0x90 in position 5`
+raised inside a background pump thread, even though the underlying `azd up`
+process was still running fine.
+
+**Root cause:** `_run_azd_up()` opened the `azd up` subprocess with
+`subprocess.Popen(..., text=True)` and no explicit `encoding=`. On Windows,
+`text=True` decodes using the process's default locale codec (cp1252 on this
+workstation), which cannot represent some bytes in azd's unicode progress
+output (spinner glyphs, checkmarks). The decode error was raised inside the
+`_pump()` thread reading `proc.stdout`, killing that thread and leaving the
+wrapper in an inconsistent state.
+
+**Fix:** `accelerator/scripts/deploy.py` now passes `encoding="utf-8",
+errors="replace"` to both `subprocess.run()` in `_run()` and
+`subprocess.Popen()` in `_run_azd_up()`, so any undecodable byte is replaced
+instead of crashing the stream reader.
+
+**Prevention:** Any new subprocess call in `accelerator/scripts/` that shells
+out to `az`/`azd` and captures or streams output should set `encoding="utf-8",
+errors="replace"` explicitly rather than relying on `text=True` alone —
+Windows' default codec is not UTF-8.
+
+---
+
+## 26. AI Search capacity auto-swap never triggered — marker scan was stderr-only
+
+**Symptom:** `azd up` failed with `InsufficientResourcesAvailable` for the AI
+Search service in the primary region, but `deploy.py`'s documented auto-swap
+(BACKLOG #2 — retry with a fallback `AZURE_SEARCH_LOCATION`) never fired; the
+wrapper exited 1 immediately instead of retrying.
+
+**Root cause:** `_looks_like_search_capacity_error()` requires both the
+`insufficientresourcesavailable` marker and the word `search` to appear in the
+same string, but the call site only scanned `result.stderr`. azd prints its
+per-resource progress line (`(x) Failed: Search service: <name>`) to
+**stdout**, while the `InsufficientResourcesAvailable` error detail lands in
+**stderr** without the word "search" nearby. Neither stream alone satisfied
+the marker check, so the gate always evaluated false.
+
+**Fix:** The retry loop in `deploy.py::main()` now builds
+`combined_lower = (result.stdout + result.stderr).lower()` and passes that to
+`_looks_like_search_capacity_error()` instead of `stderr` alone.
+
+**Prevention:** When gating on azd failure text, always scan combined
+stdout+stderr — azd does not consistently put related progress/error lines on
+the same stream.
