@@ -7,14 +7,6 @@ $ErrorActionPreference = "Continue"
 # L10: UTF-8 for all Python calls
 $env:PYTHONUTF8 = "1"
 
-# Headless-driver overlap: build.py runs `azd provision` concurrently with
-# the LLM generation steps; it sets BUILD_DEFER_HOOKS=true for that provision
-# and re-runs this hook itself once generation has finished.
-if ($env:BUILD_DEFER_HOOKS -eq "true") {
-    Write-Host "postprovision: deferred — headless driver will run this after generation completes."
-    exit 0
-}
-
 Write-Host "=================================================================="
 Write-Host "  ai-prototype-accelerator - Post-Provision"
 Write-Host "  {{CUSTOMER_NAME}} — {{USE_CASE_TITLE}}"

@@ -1,22 +1,42 @@
 // ============================================================
-// foundry-iq.bicep — Model deployments on the AI Foundry hub
+// foundry-iq.bicep — Model deployments + Azure AI Search
 //
 // Adds the LLM deployments listed in `modelDeployments` plus a
-// fixed `text-embedding-3-large` deployment (required by AI Search
-// vector indexing) as sub-resources of the AIServices hub account
-// created by foundry.bicep. No separate OpenAI account is created.
+// fixed `text-embedding-3-large` deployment (required by AI Search)
+// as sub-resources of the AIServices hub account created by
+// foundry.bicep. No separate OpenAI account is created.
 //
 // Having deployments on the hub account is required so that
 // Microsoft Agent Framework's Responses API calls (which route
 // through https://{hub}.services.ai.azure.com) can resolve them.
-//
-// The AI Search service lives in modules/search.bicep so it can
-// provision in parallel with the Foundry account — only the model
-// deployments genuinely depend on the hub.
 // ============================================================
+
+@description('Base name prefix for all resources.')
+param resourcePrefix string
+
+@description('Azure region for AI Search.')
+param location string
+
+@description('Azure region for the AI Search service. Defaults to `location`. Override when the primary region is capacity-exhausted on the Search SKU.')
+param searchLocation string = location
+
+@description('AI Search SKU. `basic` is the default for prototype workloads (cheap, adequate for one index). Bump to `standard` when Basic is capacity-exhausted region-wide or you need multiple partitions / replicas. Never use `free` — its 3-index cap conflicts with the demo\'s knowledge index + potential future indexes.')
+@allowed([
+  'basic'
+  'standard'
+  'standard2'
+  'standard3'
+])
+param searchSku string = 'basic'
 
 @description('Name of the AIServices hub account (output of foundry.bicep).')
 param hubAccountName string
+
+@description('Resource tags.')
+param tags object = {}
+
+@description('Principal ID of the user-assigned managed identity.')
+param managedIdentityPrincipalId string
 
 @description('LLM model deployments. Driven by spec.yaml.model_deployments. Each entry: { deploymentName, model, version, capacity, sku? }.')
 param modelDeployments array
@@ -96,6 +116,68 @@ resource embeddingDeployment 'Microsoft.CognitiveServices/accounts/deployments@2
   ]
 }
 
+// ── Azure AI Search ──────────────────────────────────────────
+// SKU is controlled by the `searchSku` param (default 'basic'). Bump to
+// 'standard' when Basic is capacity-exhausted region-wide — e.g. via
+// `azd env set AZURE_SEARCH_SKU standard` before rerunning `azd up`.
+// Higher SKUs give more replica/partition counts and per-index storage,
+// at proportionally higher cost.
+resource searchService 'Microsoft.Search/searchServices@2025-05-01' = {
+  name: '${resourcePrefix}-search'
+  location: searchLocation
+  tags: tags
+  sku: {
+    name: searchSku
+  }
+  properties: {
+    replicaCount: 1
+    partitionCount: 1
+    publicNetworkAccess: 'enabled'
+    authOptions: {
+      aadOrApiKey: {
+        aadAuthFailureMode: 'http403'
+      }
+    }
+  }
+}
+
+// Search Index Data Contributor → managed identity
+resource searchIndexContributorRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(searchService.id, managedIdentityPrincipalId, 'Search Index Data Contributor')
+  scope: searchService
+  properties: {
+    roleDefinitionId: subscriptionResourceId(
+      'Microsoft.Authorization/roleDefinitions',
+      '8ebe5a00-799e-43f5-93ac-243d3dce84a7'
+    )
+    principalId: managedIdentityPrincipalId
+    principalType: 'ServicePrincipal'
+  }
+}
+
+// Search Service Contributor → managed identity
+resource searchServiceContributorRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(searchService.id, managedIdentityPrincipalId, 'Search Service Contributor')
+  scope: searchService
+  properties: {
+    roleDefinitionId: subscriptionResourceId(
+      'Microsoft.Authorization/roleDefinitions',
+      '7ca78c08-252a-4471-8644-bb5ff32d4ba0'
+    )
+    principalId: managedIdentityPrincipalId
+    principalType: 'ServicePrincipal'
+  }
+}
+
 // ── Outputs ──────────────────────────────────────────────────
 @description('AIServices hub endpoint (https://{name}.services.ai.azure.com/).')
 output hubEndpoint string = 'https://${hubAccountName}.services.ai.azure.com/'
+
+@description('Resource ID of the Azure AI Search service.')
+output searchServiceId string = searchService.id
+
+@description('Name of the Azure AI Search service.')
+output searchServiceName string = searchService.name
+
+@description('Endpoint URL of the Azure AI Search service.')
+output searchEndpoint string = 'https://${searchService.name}.search.windows.net'

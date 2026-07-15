@@ -59,33 +59,21 @@ Update the **Status** column when work starts / ships. Move ✅ shipped items to
 
 ---
 
-## Priority 4 — Copilot-mode non-goals, shipped as an opt-in headless driver
+## Priority 4 — Won't do: architectural non-goals
 
-The two items below cannot be done *inside Copilot agent mode* (serial tool
-calls, no background subprocesses) — that analysis stands. They shipped
-instead as `accelerator/scripts/build.py`, an **opt-in** headless driver that
-preserves the Copilot-centric value proposition: `@devlead build` remains the
-primary, unchanged flow requiring nothing but Copilot; the driver is for
-teams that additionally have an OpenAI-compatible endpoint (BUILD_LLM_* env
-vars) and want the concurrency — it also doubles as the unattended/CI build
-path. Copilot never calls it.
+The two items below are the highest-leverage minute savings available on paper, but both require replacing the Copilot-driven build with a headless driver that calls an LLM API directly. **The accelerator is Copilot-centric by design** — the target audience has Copilot access but does not necessarily have their own Azure OpenAI quota, and paying to hit an AOAI endpoint just to accelerate a Copilot workflow inverts the value proposition. Recorded here so the trade-off is documented and doesn't get re-proposed.
 
-### 9. Parallel LLM generation (steps 3, 4, 5 concurrent) — SHIPPED (opt-in driver)
-- **Status:** Available via `py -3 accelerator/scripts/build.py`. Steps 3/4/5
-  run as concurrent chat-completions calls against the specialist briefs,
-  with a strict files-JSON protocol, per-step path confinement, seed dry-run
-  contract check, and one corrective retry. Inside Copilot agent mode this
-  remains impossible (serial tool loop) — the devlead flow is unchanged.
-- **Payoff:** Generation phase 5-10 min → bounded by the slowest single specialist.
+If Copilot ever ships parallel-tool-call or overlapping-tool-call support in agent mode, both items become achievable inside the existing flow — revisit at that point.
 
-### 10. Overlap generation with provisioning — SHIPPED (opt-in driver)
-- **Status:** Available via the same driver: `azd provision` starts right
-  after hydration and runs concurrently with generation. The postprovision
-  hook defers itself when `BUILD_DEFER_HOOKS=true` (seeding/registration need
-  the generated artifacts); the driver re-runs it via `azd hooks run
-  postprovision` after both tracks join, then runs `azd deploy`. Reuses
-  deploy.py's env-alignment and AI Search capacity-swap recovery.
-- **Payoff:** First build ≈ provisioning time alone.
+### 9. Parallel LLM generation (steps 3, 4, 5 concurrent) — DECLINED
+- **Status:** Won't do (as designed). Copilot's agent-mode execution loop processes tool calls serially in a chat session; there is no `asyncio.gather` equivalent inside Copilot. The only way to run steps 3, 4, 5 concurrently today is to call an LLM API directly from a Python driver — which requires an AOAI subscription users of this accelerator are not assumed to have.
+- **Payoff if we ever did it:** Generation phase drops from 5-10 min → 1-2 min (bounded by the slowest single specialist).
+- **Revisit if:** Copilot exposes a parallel-tool-call surface, OR the accelerator's target audience shifts to teams that always have AOAI access.
+
+### 10. Overlap generation with provisioning — DECLINED
+- **Status:** Won't do (as designed). Same root cause as #9 — the headless driver required to kick off `azd provision` in a background subprocess (via `asyncio.create_subprocess_exec`) while Copilot continues generating in the same "session" doesn't fit Copilot's agent model. A user can approximate the effect manually by opening a second terminal and running `azd provision` after step 2 completes, but that's an escape hatch, not an accelerator feature.
+- **Payoff if we ever did it:** First build ≈ provisioning time alone (~15-25 min).
+- **Revisit if:** Copilot lets agent code spawn and monitor long-running subprocesses concurrent with LLM turns.
 
 ---
 
