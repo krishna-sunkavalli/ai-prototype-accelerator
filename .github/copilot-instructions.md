@@ -129,6 +129,7 @@ See [.github/agents/devlead.agent.md](.github/agents/devlead.agent.md) for the f
 - `generated/build-state/manifest.json`, `generated/build-state/*.done`
 - `generated/prototype/infra/main.bicepparam`
 - `generated/prototype/infra/modules/foundry-iq.bicep`
+- `generated/prototype/infra/modules/search.bicep`
 - `generated/prototype/db/cosmos_seed.py`
 - `generated/prototype/agents/**`
 - `generated/prototype/agents/knowledge/**`
@@ -144,6 +145,7 @@ See [.github/agents/devlead.agent.md](.github/agents/devlead.agent.md) for the f
 | `generated/build-state/manifest.json` | 1 — validated, derived resource names |
 | `generated/prototype/infra/main.bicepparam` | 2 — branding + model params |
 | `generated/prototype/infra/modules/foundry-iq.bicep` | 2 — model deployments |
+| `generated/prototype/infra/modules/search.bicep` | 2 — AI Search (provisions in parallel with Foundry, no dependency) |
 | `generated/prototype/db/cosmos_seed.py` | 3 — domain rows only (plumbing in `_seed_lib.py`) |
 | `generated/prototype/agents/**` | 4 — agent YAML + SKILL.md + schemas.py |
 | `generated/prototype/agents/register_agents.py` | static template (copied by scaffold) |

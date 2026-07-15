@@ -38,7 +38,7 @@ and `generated/prototype/azure.yaml` (which carries the Docker `buildArgs`
 when the spec sets `deployment.base_image` — see
 `accelerator/scripts/publish-base-image.sh`) from the accelerator-owned
 templates, including the `modelDeployments` array.
-**Do NOT manually edit main.bicepparam, foundry-iq.bicep, or preprovision.sh.**
+**Do NOT manually edit main.bicepparam, foundry-iq.bicep, search.bicep, or preprovision.sh.**
 Every Bicep file is a static template, and `preprovision.sh` reads
 `manifest.json` at runtime — there is nothing per-prototype to write.
 

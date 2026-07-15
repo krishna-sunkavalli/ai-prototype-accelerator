@@ -438,7 +438,7 @@ outputs — only a chance for drift.
 
 | Layer | Pattern | Used for |
 |---|---|---|
-| **Static template** | Copied verbatim by `materialize-prototype.py` | `scripts/register_agents.py`, `infra/modules/foundry-iq.bicep`, `src/agents/*.py`, `Dockerfile`, `azure.yaml`, `hooks/preprovision.sh` |
+| **Static template** | Copied verbatim by `materialize-prototype.py` | `scripts/register_agents.py`, `infra/modules/foundry-iq.bicep`, `infra/modules/search.bicep`, `src/agents/*.py`, `Dockerfile`, `azure.yaml`, `hooks/preprovision.sh` |
 | **`.tpl` + placeholders** | Hydrated by `fill-templates.py` from `manifest.json` | `infra/main.bicepparam`, `src/config.py`, `hooks/postprovision.{sh,ps1}` |
 | **LLM specialist** | Genuinely creative content | `agents/*/agent.yaml.system_prompt`, `agents/*/skills/*/SKILL.md`, `operational-docs/*.md`, `database/cosmos_seed.py` data narratives |
 

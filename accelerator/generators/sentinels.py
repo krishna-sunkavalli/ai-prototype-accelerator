@@ -194,7 +194,8 @@ def _cli(argv: list[str]) -> int:
             --sentinel generated/build-state/02-infra.done \
             --manifest generated/build-state/manifest.json \
             --output generated/prototype/infra/main.bicepparam \
-            --output generated/prototype/infra/modules/foundry-iq.bicep
+            --output generated/prototype/infra/modules/foundry-iq.bicep \
+            --output generated/prototype/infra/modules/search.bicep
 
     Exits 1 with a clear message if any output path is missing — the
     sentinel is never written for an incomplete step.

@@ -46,7 +46,7 @@ sequenceDiagram
     SV->>Sent: write 01-spec-validator.done
 
     par Steps 2–6 (parallel-ready batch)
-        DL->>FT: Step 2 — infra (main.bicepparam, foundry-iq.bicep)
+        DL->>FT: Step 2 — infra (main.bicepparam, foundry-iq.bicep, search.bicep)
         FT->>Out: Hydrate .tpl placeholders
         FT->>Sent: write 02-infra-agent.done
     and

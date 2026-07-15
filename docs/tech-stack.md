@@ -47,8 +47,8 @@ Every technology used by a deployed `ai-prototype-accelerator` instance. Version
 | **Azure Container Apps** | [`infra/modules/container-app.bicep`](../accelerator/templates/prototype/infra/modules/container-app.bicep) | Hosts the FastAPI backend + SPA; UAMI attached |
 | **Azure Container Registry** | [`infra/modules/container-registry.bicep`](../accelerator/templates/prototype/infra/modules/container-registry.bicep) | Image registry |
 | **Azure AI Foundry (hub + project + models)** | [`foundry.bicep`](../accelerator/templates/prototype/infra/modules/foundry.bicep), [`foundry-iq.bicep`](../accelerator/templates/prototype/infra/modules/foundry-iq.bicep) | Project + model deployments |
+| **Azure AI Search** | [`search.bicep`](../accelerator/templates/prototype/infra/modules/search.bicep) | Search service — no dependency on Foundry, provisions in parallel |
 | **Azure Cosmos DB (NoSQL)** | [`cosmos.bicep`](../accelerator/templates/prototype/infra/modules/cosmos.bicep) | Databases + containers from `spec.yaml` |
-| **Azure AI Search** | bundled in [`foundry-iq.bicep`](../accelerator/templates/prototype/infra/modules/foundry-iq.bicep) (Foundry IQ stack) | Index + semantic config |
 | **Azure Storage (Blob)** | [`storage.bicep`](../accelerator/templates/prototype/infra/modules/storage.bicep) | Knowledge documents |
 | **Application Insights + Log Analytics** | [`monitoring.bicep`](../accelerator/templates/prototype/infra/modules/monitoring.bicep) | Observability backend |
 | **Container image** | [`Dockerfile`](../accelerator/templates/prototype/Dockerfile) | Python 3.11 slim base, multi-stage build |
