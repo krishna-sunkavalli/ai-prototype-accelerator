@@ -2,77 +2,105 @@
 ai-prototype-accelerator — AI Search Tool
 Static scaffold file — do NOT modify when processing spec.yaml.
 
-Hybrid search: semantic + keyword combined.
-Always uses semantic ranker. Returns top 5 results.
+Calls a Foundry IQ knowledge base's `retrieve` action (agentic retrieval):
+the knowledge base decomposes the query, runs it against the blob knowledge
+source (chunked + optionally vectorized by the auto-generated indexer
+pipeline created in postprovision), semantically reranks, and returns
+grounding data. This replaces a hand-rolled single-shot semantic query
+against a manually-built index.
 """
-import os
+import json
 import logging
+import os
 
-from azure.search.documents import SearchClient
-from azure.search.documents.models import (
-    VectorizedQuery,
-    QueryType,
-    QueryAnswerType,
-    QueryCaptionType,
-)
+import httpx
 from azure.identity import DefaultAzureCredential
 
 from agents.tools import activity
 
 logger = logging.getLogger(__name__)
 
-# SearchClient is a long-lived singleton for the same reason as the Cosmos
-# client: per-call construction rebuilds connections and re-acquires tokens.
-_SEARCH_CLIENT: SearchClient | None = None
+_SEARCH_API_VERSION = "2026-05-01-preview"
+
+# DefaultAzureCredential caches tokens internally; a module-level singleton
+# avoids re-creating the credential (and its token cache) on every call.
+_CREDENTIAL: DefaultAzureCredential | None = None
 
 
-def _get_search_client() -> SearchClient:
-    global _SEARCH_CLIENT
-    if _SEARCH_CLIENT is None:
-        credential = DefaultAzureCredential(
+def _get_credential() -> DefaultAzureCredential:
+    global _CREDENTIAL
+    if _CREDENTIAL is None:
+        _CREDENTIAL = DefaultAzureCredential(
             managed_identity_client_id=os.environ["AZURE_CLIENT_ID"]
         )
-        _SEARCH_CLIENT = SearchClient(
-            endpoint=os.environ["AZURE_SEARCH_ENDPOINT"],
-            index_name=os.environ["AZURE_SEARCH_INDEX"],
-            credential=credential
-        )
-    return _SEARCH_CLIENT
+    return _CREDENTIAL
+
+
+def _knowledge_base_name() -> str:
+    # Derived, not a separate env var — matches the "{index}-kb" name the
+    # postprovision hook creates the knowledge base under.
+    return f"{os.environ['AZURE_SEARCH_INDEX']}-kb"
 
 
 def search_knowledge_base(query: str) -> str:
     """
-    Hybrid semantic + keyword search against Azure AI Search index.
-    Returns formatted context string for agent.
+    Agentic retrieval against the Foundry IQ knowledge base.
+    Returns a formatted context string for the agent.
     """
     preview = query if len(query) <= 60 else query[:57] + "..."
     activity.notify(f'Searching knowledge base: "{preview}"')
-    client = _get_search_client()
+
+    endpoint = os.environ["AZURE_SEARCH_ENDPOINT"].rstrip("/")
+    kb_name = _knowledge_base_name()
+    url = f"{endpoint}/knowledgebases/{kb_name}/retrieve"
+
+    body = {
+        "messages": [
+            {
+                "role": "assistant",
+                "content": [
+                    {
+                        "type": "text",
+                        "text": (
+                            "You retrieve grounding data for a business chat agent. "
+                            "Sources are JSON objects with a ref_id, title, and content."
+                        ),
+                    }
+                ],
+            },
+            {
+                "role": "user",
+                "content": [{"type": "text", "text": query}],
+            },
+        ]
+    }
 
     try:
-        results = client.search(
-            search_text=query,
-            query_type=QueryType.SEMANTIC,
-            semantic_configuration_name="default",
-            query_caption=QueryCaptionType.EXTRACTIVE,
-            query_answer=QueryAnswerType.EXTRACTIVE,
-            top=5,
-            select=["content", "title", "filename", "category"]
+        token = _get_credential().get_token("https://search.azure.com/.default").token
+        response = httpx.post(
+            url,
+            params={"api-version": _SEARCH_API_VERSION},
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Content-Type": "application/json",
+            },
+            json=body,
+            timeout=30.0,
         )
+        response.raise_for_status()
+        payload = response.json()
+
+        raw_text = payload["response"][0]["content"][0]["text"]
+        chunks = json.loads(raw_text) if raw_text else []
+
+        if not chunks:
+            return "No relevant information found in the knowledge base."
 
         formatted_results = []
-        for i, result in enumerate(results, 1):
-            content = result.get("content", "")
-            title = result.get("title", "Untitled")
-            source = result.get("filename") or result.get("category") or "Unknown"
-            score = result.get("@search.score", 0.0)
-
-            formatted_results.append(
-                f"[{i}] **{title}** (source: {source}, score: {score:.3f})\n{content}"
-            )
-
-        if not formatted_results:
-            return "No relevant information found in the knowledge base."
+        for i, chunk in enumerate(chunks, 1):
+            title = chunk.get("title", "Untitled")
+            content = chunk.get("content", "")
+            formatted_results.append(f"[{i}] **{title}**\n{content}")
 
         context = "\n\n".join(formatted_results)
         _log_search(query, len(formatted_results))
@@ -92,3 +120,4 @@ def _log_search(query: str, result_count: int) -> None:
         )
     except Exception:
         pass
+

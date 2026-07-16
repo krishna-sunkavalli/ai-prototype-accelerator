@@ -168,6 +168,23 @@ Assign-ArmRole $MI_OID "Azure AI User" $HUB_ID    "MI -> Hub"
 Assign-ArmRole $MI_OID "Azure AI User" $PROJ_ID   "MI -> Project"
 Write-Host ""
 
+# -- Step 5c: AI Search's OWN identity -> Foundry hub + Storage (Foundry IQ) --
+# Foundry IQ (blob knowledge source + knowledge base, step 10) calls the
+# deployed embedding/chat models and reads blob content using the Search
+# service's OWN system-assigned identity -- never an API key -- so no secret
+# ever lands in the knowledge source/base definitions.
+Write-Host "5c) Assigning AI Search's identity to Foundry hub + Storage..."
+$SEARCH_PRINCIPAL_ID = $null
+try {
+  $SEARCH_PRINCIPAL_ID = (az search service show `
+    --name $SEARCH_SERVICE `
+    --resource-group $env:AZURE_RESOURCE_GROUP `
+    --query identity.principalId --output tsv 2>$null)
+} catch {}
+Assign-ArmRole $SEARCH_PRINCIPAL_ID "Cognitive Services User" $HUB_ID "Search -> Hub (Foundry IQ)"
+Assign-ArmRole $SEARCH_PRINCIPAL_ID "Storage Blob Data Reader" $STORAGE_ID "Search -> Storage (Foundry IQ)"
+Write-Host ""
+
 # -- Step 6: Consolidated RBAC propagation wait (L5) -------------------------
 Write-Host "6)  Waiting 90s for all RBAC assignments to propagate..."
 Start-Sleep -Seconds 90
@@ -233,11 +250,26 @@ az storage blob upload-batch `
 Write-Host "   OK: Operational documents uploaded."
 Write-Host ""
 
-# -- Step 10: Create/update AI Search index and index documents ---------------
-Write-Host "10) Indexing operational documents in Azure AI Search..."
+# -- Step 10: Wire operational documents into a Foundry IQ knowledge base ----
+# Real Foundry IQ wiring (not a hand-rolled index): a blob knowledge source
+# auto-generates the data source + skillset (chunking/vectorization) +
+# indexer + index from the blob container, and a knowledge base wraps it for
+# agentic retrieval (subquery decomposition + semantic reranking). Both the
+# embedding model and the query-planning LLM are called via the Search
+# service's OWN identity (granted in step 5c) -- no API key stored in either
+# object. Cosmos DB is untouched by this change; run_sql_query keeps handling
+# precise structured lookups.
+Write-Host "10) Wiring operational documents into Foundry IQ (agentic retrieval)..."
 
 $INDEX_NAME = if ($env:AZURE_SEARCH_INDEX_NAME) { $env:AZURE_SEARCH_INDEX_NAME } else { "{{SEARCH_INDEX_NAME}}" }
-# Use admin API key — avoids RBAC propagation race; disableLocalAuth=false so keys are always available
+$KS_NAME = "$INDEX_NAME-ks"
+$KB_NAME = "$INDEX_NAME-kb"
+$KS_API_VERSION = "2026-05-01-preview"
+
+# Use admin API key for the Search control-plane calls themselves (avoids the
+# RBAC propagation race for this script, same as before) -- this is separate
+# from the identity-based auth the knowledge source/base use to reach the
+# embedding/chat models and blob storage.
 $SEARCH_ADMIN_KEY = (az search admin-key show `
   --service-name $SEARCH_SERVICE `
   --resource-group $env:AZURE_RESOURCE_GROUP `
@@ -247,95 +279,129 @@ if ([string]::IsNullOrWhiteSpace($SEARCH_ADMIN_KEY)) {
   $FAILED = $true
 }
 
-# L11: correct semantic config field names (prioritizedContentFields / prioritizedKeywordsFields)
-$INDEX_DEF = @{
-  name   = $INDEX_NAME
-  fields = @(
-    @{ name = "id";       type = "Edm.String"; key = $true;  searchable = $false },
-    @{ name = "content";  type = "Edm.String"; searchable = $true; analyzer = "en.microsoft" },
-    @{ name = "title";    type = "Edm.String"; searchable = $true;  filterable = $true },
-    @{ name = "filename"; type = "Edm.String"; searchable = $false; filterable = $true },
-    @{ name = "category"; type = "Edm.String"; searchable = $false; filterable = $true }
-  )
-  semantic = @{
-    configurations = @(@{
-      name = "default"
-      prioritizedFields = @{
-        prioritizedContentFields  = @(@{ fieldName = "content" })
-        prioritizedKeywordsFields = @(@{ fieldName = "title" })
+# Base AI Services endpoint (NOT the /api/projects/{proj}/ path) for the
+# embedding + chat-completion model references below.
+$AI_SERVICES_SUBDOMAIN = $null
+try {
+  $AI_SERVICES_SUBDOMAIN = (az cognitiveservices account show `
+    --name $AI_HUB_NAME `
+    --resource-group $env:AZURE_RESOURCE_GROUP `
+    --query properties.customSubDomainName --output tsv 2>$null)
+} catch {}
+$AI_SERVICES_ENDPOINT = "https://$AI_SERVICES_SUBDOMAIN.services.ai.azure.com/"
+
+# Identity-based blob connection string -- no storage key stored anywhere.
+$STORAGE_CONNECTION = "ResourceId=/subscriptions/$SUBSCRIPTION_ID/resourceGroups/$env:AZURE_RESOURCE_GROUP/providers/Microsoft.Storage/storageAccounts/$env:AZURE_STORAGE_ACCOUNT_NAME;"
+
+$KS_BODY = @{
+  name = $KS_NAME
+  kind = "azureBlob"
+  description = "Operational knowledge documents for {{CUSTOMER_NAME}}."
+  azureBlobParameters = @{
+    connectionString = $STORAGE_CONNECTION
+    containerName = "prototype-data"
+    folderPath = "operational-docs"
+    isADLSGen2 = $false
+    ingestionParameters = @{
+      contentExtractionMode = "minimal"
+      disableImageVerbalization = $true
+      embeddingModel = @{
+        kind = "azureOpenAI"
+        azureOpenAIParameters = @{
+          resourceUri = $AI_SERVICES_ENDPOINT
+          deploymentId = "text-embedding-3-large"
+          modelName = "text-embedding-3-large"
+        }
       }
-    })
+      chatCompletionModel = @{
+        kind = "azureOpenAI"
+        azureOpenAIParameters = @{
+          resourceUri = $AI_SERVICES_ENDPOINT
+          deploymentId = "gpt-4o-mini"
+          modelName = "gpt-4o-mini"
+        }
+      }
+    }
   }
 } | ConvertTo-Json -Depth 10
 
 try {
-  $indexResponse = Invoke-WebRequest `
-    -Uri "$env:AZURE_SEARCH_ENDPOINT/indexes/${INDEX_NAME}?api-version=2023-11-01" `
+  $ksResponse = Invoke-WebRequest `
+    -Uri "$env:AZURE_SEARCH_ENDPOINT/knowledgesources/${KS_NAME}?api-version=$KS_API_VERSION" `
     -Method PUT `
     -Headers @{ "api-key" = $SEARCH_ADMIN_KEY; "Content-Type" = "application/json" } `
-    -Body $INDEX_DEF `
+    -Body $KS_BODY `
     -UseBasicParsing `
     -ErrorAction Stop
-  # L12: Accept 200, 201, 204
-  if ($indexResponse.StatusCode -in @(200, 201, 204)) {
-    Write-Host "   OK: Search index '$INDEX_NAME' created/updated (HTTP $($indexResponse.StatusCode))."
+  if ($ksResponse.StatusCode -in @(200, 201, 204)) {
+    Write-Host "   OK: Knowledge source '$KS_NAME' created/updated (HTTP $($ksResponse.StatusCode))."
   } else {
-    Write-Host "   FAILED: Search index (HTTP $($indexResponse.StatusCode))."
+    Write-Host "   FAILED: Knowledge source (HTTP $($ksResponse.StatusCode))."
     $FAILED = $true
   }
 } catch {
   $sc = $_.Exception.Response.StatusCode.value__
-  # L12: 204 comes back as a non-terminating response in some environments
-  if ($sc -eq 204) {
-    Write-Host "   OK: Search index already exists (HTTP 204)."
-  } else {
-    Write-Host "   FAILED: Could not create search index -- $($_.Exception.Message)"
-    $FAILED = $true
-  }
+  if ($sc -eq 204) { Write-Host "   OK: Knowledge source already exists (HTTP 204)." }
+  else { Write-Host "   FAILED: Could not create knowledge source -- $($_.Exception.Message)"; $FAILED = $true }
 }
 
-foreach ($filename in $DOCS) {
-  if ([string]::IsNullOrWhiteSpace($SEARCH_ADMIN_KEY)) { $FAILED = $true; break }
-  $doc_file = Join-Path $DOCS_DIR $filename
-  if (-not (Test-Path $doc_file)) {
-    Write-Host "   NOT FOUND: $filename"
-    $FAILED = $true
-    continue
-  }
-  $doc_id   = [System.IO.Path]::GetFileNameWithoutExtension($filename)
-  $raw      = Get-Content $doc_file -Raw
-  $title    = ($raw -split "`n" | Where-Object { $_ -match "^#" } | Select-Object -First 1) -replace "^#+ ", ""
-  $doc_body = @{
-    value = @(@{
-      "@search.action" = "mergeOrUpload"
-      id       = $doc_id
-      title    = $title
-      filename = $filename
-      category = "operational-docs"
-      content  = $raw
-    })
-  } | ConvertTo-Json -Depth 5
+$KB_BODY = @{
+  name = $KB_NAME
+  description = "Foundry IQ knowledge base for {{CUSTOMER_NAME}} operational documents."
+  knowledgeSources = @(@{ name = $KS_NAME })
+  models = @(@{
+    kind = "azureOpenAI"
+    azureOpenAIParameters = @{
+      resourceUri = $AI_SERVICES_ENDPOINT
+      deploymentId = "gpt-4o-mini"
+      modelName = "gpt-4o-mini"
+    }
+  })
+  outputMode = "extractedData"
+  retrievalReasoningEffort = @{ kind = "low" }
+} | ConvertTo-Json -Depth 10
 
+try {
+  $kbResponse = Invoke-WebRequest `
+    -Uri "$env:AZURE_SEARCH_ENDPOINT/knowledgebases/${KB_NAME}?api-version=$KS_API_VERSION" `
+    -Method PUT `
+    -Headers @{ "api-key" = $SEARCH_ADMIN_KEY; "Content-Type" = "application/json" } `
+    -Body $KB_BODY `
+    -UseBasicParsing `
+    -ErrorAction Stop
+  if ($kbResponse.StatusCode -in @(200, 201, 204)) {
+    Write-Host "   OK: Knowledge base '$KB_NAME' created/updated (HTTP $($kbResponse.StatusCode))."
+  } else {
+    Write-Host "   FAILED: Knowledge base (HTTP $($kbResponse.StatusCode))."
+    $FAILED = $true
+  }
+} catch {
+  $sc = $_.Exception.Response.StatusCode.value__
+  if ($sc -eq 204) { Write-Host "   OK: Knowledge base already exists (HTTP 204)." }
+  else { Write-Host "   FAILED: Could not create knowledge base -- $($_.Exception.Message)"; $FAILED = $true }
+}
+
+# Brief, bounded, non-fatal poll — first ingestion sync can take a few
+# minutes even for a handful of docs. A prototype shouldn't hang the whole
+# deploy on it; log where it stands and move on.
+Write-Host "   Checking ingestion status (up to 60s, non-blocking)..."
+for ($i = 0; $i -lt 6; $i++) {
+  Start-Sleep -Seconds 10
   try {
-    $uploadResponse = Invoke-WebRequest `
-      -Uri "$env:AZURE_SEARCH_ENDPOINT/indexes/${INDEX_NAME}/docs/index?api-version=2023-11-01" `
-      -Method POST `
-      -Headers @{ "api-key" = $SEARCH_ADMIN_KEY; "Content-Type" = "application/json" } `
-      -Body $doc_body `
+    $statusResponse = Invoke-WebRequest `
+      -Uri "$env:AZURE_SEARCH_ENDPOINT/knowledgesources/${KS_NAME}/status?api-version=$KS_API_VERSION" `
+      -Method GET `
+      -Headers @{ "api-key" = $SEARCH_ADMIN_KEY } `
       -UseBasicParsing `
       -ErrorAction Stop
-    # L12: Accept 200, 201, 204
-    if ($uploadResponse.StatusCode -in @(200, 201, 204)) {
-      Write-Host "   OK: $filename"
-    } else {
-      Write-Host "   FAILED: $filename (HTTP $($uploadResponse.StatusCode))"
-      $FAILED = $true
+    $status = ($statusResponse.Content | ConvertFrom-Json).lastSynchronizationState.status
+    if ($status -eq "success") {
+      Write-Host "   OK: Initial ingestion complete."
+      break
+    } elseif ($i -eq 5) {
+      Write-Host "   INFO: Ingestion still in progress (status: $status) -- it will finish in the background."
     }
-  } catch {
-    $sc = $_.Exception.Response.StatusCode.value__
-    if ($sc -eq 204) { Write-Host "   OK: $filename (HTTP 204)" }
-    else { Write-Host "   FAILED: $filename -- $($_.Exception.Message)"; $FAILED = $true }
-  }
+  } catch { break }
 }
 Write-Host ""
 
@@ -375,10 +441,10 @@ if ($FAILED) {
   Write-Host "=================================================================="
   Write-Host "  POST-PROVISION COMPLETE"
   Write-Host ""
-  Write-Host "  * RBAC assigned (MI + deployer) -- Cosmos, Storage, Search"
+  Write-Host "  * RBAC assigned (MI + deployer + Search identity) -- Cosmos, Storage, Search, Foundry"
   Write-Host "  * Cosmos DB seeded ({{TABLE_NAMES_STR}})"
   Write-Host "  * Operational documents uploaded to Blob Storage"
-  Write-Host "  * Documents indexed in AI Search ($INDEX_NAME)"
+  Write-Host "  * Foundry IQ knowledge base wired ($KB_NAME, agentic retrieval)"
   Write-Host "  * Agents registered in Azure AI Foundry"
   Write-Host ""
   Write-Host "  Run: azd deploy"

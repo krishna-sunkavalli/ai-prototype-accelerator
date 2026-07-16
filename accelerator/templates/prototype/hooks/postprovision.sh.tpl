@@ -154,6 +154,20 @@ assign_arm_role "${MI_OID}" "Azure AI User" "${HUB_ID}"  "MI -> Hub"
 assign_arm_role "${MI_OID}" "Azure AI User" "${PROJ_ID}" "MI -> Project"
 echo ""
 
+# -- Step 5c: AI Search's OWN identity -> Foundry hub + Storage (Foundry IQ) --
+# Foundry IQ (blob knowledge source + knowledge base, step 10) calls the
+# deployed embedding/chat models and reads blob content using the Search
+# service's OWN system-assigned identity -- never an API key -- so no secret
+# ever lands in the knowledge source/base definitions.
+echo "5c) Assigning AI Search's identity to Foundry hub + Storage..."
+SEARCH_PRINCIPAL_ID=$(az search service show \
+  --name "${SEARCH_NAME}" \
+  --resource-group "${AZURE_RESOURCE_GROUP}" \
+  --query identity.principalId --output tsv 2>/dev/null || true)
+assign_arm_role "${SEARCH_PRINCIPAL_ID}" "Cognitive Services User" "${HUB_ID}" "Search -> Hub (Foundry IQ)"
+assign_arm_role "${SEARCH_PRINCIPAL_ID}" "Storage Blob Data Reader" "${STORAGE_ID}" "Search -> Storage (Foundry IQ)"
+echo ""
+
 # -- Step 6: Consolidated RBAC propagation wait (L5) -------------------------
 echo "6)  Waiting 90s for all RBAC assignments to propagate..."
 sleep 90
@@ -219,93 +233,154 @@ az storage blob upload-batch \
 echo "   OK: Operational documents uploaded."
 echo ""
 
-# -- Step 10: Create/update AI Search index and index documents ---------------
-echo "10) Indexing operational documents in Azure AI Search..."
+# -- Step 10: Wire operational documents into a Foundry IQ knowledge base ----
+# Real Foundry IQ wiring (not a hand-rolled index): a blob knowledge source
+# auto-generates the data source + skillset (chunking/vectorization) +
+# indexer + index from the blob container, and a knowledge base wraps it for
+# agentic retrieval (subquery decomposition + semantic reranking). Both the
+# embedding model and the query-planning LLM are called via the Search
+# service's OWN identity (granted in step 5c) -- no API key stored in either
+# object. Cosmos DB is untouched by this change; run_sql_query keeps handling
+# precise structured lookups.
+echo "10) Wiring operational documents into Foundry IQ (agentic retrieval)..."
 
 INDEX_NAME="${AZURE_SEARCH_INDEX_NAME:-{{SEARCH_INDEX_NAME}}}"
-# Use admin API key — avoids RBAC propagation race; disableLocalAuth=false so keys are always available
-SEARCH_SERVICE=$(echo "$AZURE_SEARCH_ENDPOINT" | sed 's|https://||' | cut -d. -f1)
+KS_NAME="${INDEX_NAME}-ks"
+KB_NAME="${INDEX_NAME}-kb"
+KS_API_VERSION="2026-05-01-preview"
+
+# Use admin API key for the Search control-plane calls themselves (avoids the
+# RBAC propagation race for this script) -- separate from the identity-based
+# auth the knowledge source/base use to reach the embedding/chat models and
+# blob storage.
 SEARCH_ADMIN_KEY=$(az search admin-key show \
-  --service-name "$SEARCH_SERVICE" \
-  --resource-group "$AZURE_RESOURCE_GROUP" \
+  --service-name "${SEARCH_NAME}" \
+  --resource-group "${AZURE_RESOURCE_GROUP}" \
   --query primaryKey --output tsv 2>/dev/null)
 if [ -z "$SEARCH_ADMIN_KEY" ]; then
   echo "   FAILED: Could not retrieve Search admin key."
   FAILED=true
 fi
 
-# L11: correct semantic config field names (prioritizedContentFields / prioritizedKeywordsFields)
-INDEX_JSON=$(python3 - <<'PYEOF'
-import json, os
-name = os.environ.get("AZURE_SEARCH_INDEX_NAME", "{{SEARCH_INDEX_NAME}}")
-schema = {
-  "name": name,
-  "fields": [
-    {"name": "id", "type": "Edm.String", "key": True, "searchable": False},
-    {"name": "content", "type": "Edm.String", "searchable": True, "analyzer": "en.microsoft"},
-    {"name": "title", "type": "Edm.String", "searchable": True, "filterable": True},
-    {"name": "filename", "type": "Edm.String", "searchable": False, "filterable": True},
-    {"name": "category", "type": "Edm.String", "searchable": False, "filterable": True}
-  ],
-  "semantic": {
-    "configurations": [{
-      "name": "default",
-      "prioritizedFields": {
-        "prioritizedContentFields": [{"fieldName": "content"}],
-        "prioritizedKeywordsFields": [{"fieldName": "title"}]
-      }
-    }]
-  }
+# Base AI Services endpoint (NOT the /api/projects/{proj}/ path) for the
+# embedding + chat-completion model references below.
+AI_SERVICES_SUBDOMAIN=$(az cognitiveservices account show \
+  --name "${AZURE_AI_HUB_NAME}" \
+  --resource-group "${AZURE_RESOURCE_GROUP}" \
+  --query properties.customSubDomainName --output tsv 2>/dev/null || true)
+AI_SERVICES_ENDPOINT="https://${AI_SERVICES_SUBDOMAIN}.services.ai.azure.com/"
+
+# Identity-based blob connection string -- no storage key stored anywhere.
+STORAGE_CONNECTION="ResourceId=/subscriptions/${AZURE_SUBSCRIPTION_ID}/resourceGroups/${AZURE_RESOURCE_GROUP}/providers/Microsoft.Storage/storageAccounts/${AZURE_STORAGE_ACCOUNT_NAME};"
+
+KS_JSON=$(python3 - "$KS_NAME" "$STORAGE_CONNECTION" "$AI_SERVICES_ENDPOINT" "{{CUSTOMER_NAME}}" <<'PYEOF'
+import json, sys
+ks_name, storage_conn, ai_endpoint, customer = sys.argv[1:5]
+body = {
+    "name": ks_name,
+    "kind": "azureBlob",
+    "description": f"Operational knowledge documents for {customer}.",
+    "azureBlobParameters": {
+        "connectionString": storage_conn,
+        "containerName": "prototype-data",
+        "folderPath": "operational-docs",
+        "isADLSGen2": False,
+        "ingestionParameters": {
+            "contentExtractionMode": "minimal",
+            "disableImageVerbalization": True,
+            "embeddingModel": {
+                "kind": "azureOpenAI",
+                "azureOpenAIParameters": {
+                    "resourceUri": ai_endpoint,
+                    "deploymentId": "text-embedding-3-large",
+                    "modelName": "text-embedding-3-large",
+                },
+            },
+            "chatCompletionModel": {
+                "kind": "azureOpenAI",
+                "azureOpenAIParameters": {
+                    "resourceUri": ai_endpoint,
+                    "deploymentId": "gpt-4o-mini",
+                    "modelName": "gpt-4o-mini",
+                },
+            },
+        },
+    },
 }
-print(json.dumps(schema))
+print(json.dumps(body))
 PYEOF
 )
 
-HTTP_STATUS=$(curl -s -o /tmp/search_index_response.json -w "%{http_code}" \
+HTTP_STATUS=$(curl -s -o /tmp/ks_response.json -w "%{http_code}" \
   -X PUT \
-  "${AZURE_SEARCH_ENDPOINT}/indexes/${INDEX_NAME}?api-version=2023-11-01" \
+  "${AZURE_SEARCH_ENDPOINT}/knowledgesources/${KS_NAME}?api-version=${KS_API_VERSION}" \
   -H "api-key: ${SEARCH_ADMIN_KEY}" \
   -H "Content-Type: application/json" \
-  -d "${INDEX_JSON}")
+  -d "${KS_JSON}")
 
-# L12: Accept 200, 201, 204
 if [ "$HTTP_STATUS" -ne 200 ] && [ "$HTTP_STATUS" -ne 201 ] && [ "$HTTP_STATUS" -ne 204 ]; then
-  echo "   FAILED: Could not create search index (HTTP ${HTTP_STATUS})."
-  cat /tmp/search_index_response.json | sed "s/^/   /" || true
+  echo "   FAILED: Knowledge source (HTTP ${HTTP_STATUS})."
+  cat /tmp/ks_response.json | sed "s/^/   /" || true
   FAILED=true
 else
-  echo "   OK: Search index '${INDEX_NAME}' created/updated (HTTP ${HTTP_STATUS})."
+  echo "   OK: Knowledge source '${KS_NAME}' created/updated (HTTP ${HTTP_STATUS})."
 fi
 
-for filename in "${DOCS[@]}"; do
-  doc_file="${DOCS_DIR}/${filename}"
-  if [ ! -f "$doc_file" ]; then
-    echo "   NOT FOUND: $filename"
-    FAILED=true
-    continue
-  fi
-  doc_id="${filename%.md}"
-  title=$(head -5 "$doc_file" | grep "^#" | head -1 | sed "s/^#* //")
-  content=$(python3 -c "import json,sys; print(json.dumps(open(sys.argv[1]).read()))" "$doc_file")
-  DOCUMENT_JSON=$(python3 -c "
+KB_JSON=$(python3 - "$KB_NAME" "$KS_NAME" "$AI_SERVICES_ENDPOINT" "{{CUSTOMER_NAME}}" <<'PYEOF'
 import json, sys
-doc_id = sys.argv[1]; title = sys.argv[2]; filename = sys.argv[3]; content_file = sys.argv[4]
-content = open(content_file).read()
-doc = {'value': [{'@search.action': 'mergeOrUpload', 'id': doc_id, 'title': title, 'filename': filename, 'category': 'operational-docs', 'content': content}]}
-print(json.dumps(doc))
-" "$doc_id" "$title" "$filename" "$doc_file")
-  HTTP_STATUS=$(curl -s -o /tmp/search_upload_response.json -w "%{http_code}" \
-    -X POST \
-    "${AZURE_SEARCH_ENDPOINT}/indexes/${INDEX_NAME}/docs/index?api-version=2023-11-01" \
-    -H "api-key: ${SEARCH_ADMIN_KEY}" \
-    -H "Content-Type: application/json" \
-    -d "${DOCUMENT_JSON}")
-  # L12: Accept 200, 201, 204
-  if [ "$HTTP_STATUS" -ne 200 ] && [ "$HTTP_STATUS" -ne 201 ] && [ "$HTTP_STATUS" -ne 204 ]; then
-    echo "   FAILED: ${filename} (HTTP ${HTTP_STATUS})"
-    FAILED=true
-  else
-    echo "   OK: ${filename}"
+kb_name, ks_name, ai_endpoint, customer = sys.argv[1:5]
+body = {
+    "name": kb_name,
+    "description": f"Foundry IQ knowledge base for {customer} operational documents.",
+    "knowledgeSources": [{"name": ks_name}],
+    "models": [{
+        "kind": "azureOpenAI",
+        "azureOpenAIParameters": {
+            "resourceUri": ai_endpoint,
+            "deploymentId": "gpt-4o-mini",
+            "modelName": "gpt-4o-mini",
+        },
+    }],
+    "outputMode": "extractedData",
+    "retrievalReasoningEffort": {"kind": "low"},
+}
+print(json.dumps(body))
+PYEOF
+)
+
+HTTP_STATUS=$(curl -s -o /tmp/kb_response.json -w "%{http_code}" \
+  -X PUT \
+  "${AZURE_SEARCH_ENDPOINT}/knowledgebases/${KB_NAME}?api-version=${KS_API_VERSION}" \
+  -H "api-key: ${SEARCH_ADMIN_KEY}" \
+  -H "Content-Type: application/json" \
+  -d "${KB_JSON}")
+
+if [ "$HTTP_STATUS" -ne 200 ] && [ "$HTTP_STATUS" -ne 201 ] && [ "$HTTP_STATUS" -ne 204 ]; then
+  echo "   FAILED: Knowledge base (HTTP ${HTTP_STATUS})."
+  cat /tmp/kb_response.json | sed "s/^/   /" || true
+  FAILED=true
+else
+  echo "   OK: Knowledge base '${KB_NAME}' created/updated (HTTP ${HTTP_STATUS})."
+fi
+
+# Brief, bounded, non-fatal poll — first ingestion sync can take a few
+# minutes even for a handful of docs. Don't hang the whole deploy on it.
+echo "   Checking ingestion status (up to 60s, non-blocking)..."
+for i in 1 2 3 4 5 6; do
+  sleep 10
+  STATUS_JSON=$(curl -s \
+    "${AZURE_SEARCH_ENDPOINT}/knowledgesources/${KS_NAME}/status?api-version=${KS_API_VERSION}" \
+    -H "api-key: ${SEARCH_ADMIN_KEY}" 2>/dev/null || true)
+  SYNC_STATUS=$(echo "$STATUS_JSON" | python3 -c "import json,sys
+try:
+    print(json.load(sys.stdin).get('lastSynchronizationState', {}).get('status', 'unknown'))
+except Exception:
+    print('unknown')" 2>/dev/null || echo "unknown")
+  if [ "$SYNC_STATUS" = "success" ]; then
+    echo "   OK: Initial ingestion complete."
+    break
+  elif [ "$i" -eq 6 ]; then
+    echo "   INFO: Ingestion still in progress (status: ${SYNC_STATUS}) -- it will finish in the background."
   fi
 done
 echo ""
@@ -346,10 +421,10 @@ else
   echo "=================================================================="
   echo "  POST-PROVISION COMPLETE"
   echo ""
-  echo "  * RBAC assigned (MI + deployer) -- Cosmos, Storage, Search"
+  echo "  * RBAC assigned (MI + deployer + Search identity) -- Cosmos, Storage, Search, Foundry"
   echo "  * Cosmos DB seeded ({{TABLE_NAMES_STR}})"
   echo "  * Operational documents uploaded to Blob Storage"
-  echo "  * Documents indexed in AI Search (${INDEX_NAME})"
+  echo "  * Foundry IQ knowledge base wired (${KB_NAME}, agentic retrieval)"
   echo "  * Agents registered in Azure AI Foundry"
   echo ""
   echo "  Run: azd deploy"

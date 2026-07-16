@@ -46,6 +46,15 @@ resource searchService 'Microsoft.Search/searchServices@2025-05-01' = {
   sku: {
     name: searchSku
   }
+  identity: {
+    // Foundry IQ (blob knowledge source + knowledge base) calls the deployed
+    // embedding/chat models under the search service's OWN identity — never
+    // an API key — so the knowledge source/base definitions never carry a
+    // secret. Requires Cognitive Services User on the Foundry hub and
+    // Storage Blob Data Reader on the storage account (granted in
+    // postprovision, alongside the other cross-resource RBAC there).
+    type: 'SystemAssigned'
+  }
   properties: {
     replicaCount: 1
     partitionCount: 1
@@ -95,3 +104,6 @@ output searchServiceName string = searchService.name
 
 @description('Endpoint URL of the Azure AI Search service.')
 output searchEndpoint string = 'https://${searchService.name}.search.windows.net'
+
+@description('Principal ID of the Search service\'s own system-assigned identity. Used by postprovision to grant Cognitive Services User (on the Foundry hub) and Storage Blob Data Reader (on the storage account) so Foundry IQ knowledge sources/bases can call deployed models and read blob content without an API key.')
+output searchPrincipalId string = searchService.identity.principalId
