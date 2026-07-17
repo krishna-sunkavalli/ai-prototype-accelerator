@@ -2,11 +2,50 @@
 
 ## 1. Revisit: confirm telemetry actually lands in Log Analytics / App Insights
 
-**Status:** Infra fixes applied and confirmed at the config level (see
+**Status: RESOLVED 2026-07-17 (App Insights SDK telemetry half) — see RESOLVED.md
+#40.** The real root cause was a poisoned pip dependency resolution
+(`azure-monitor-opentelemetry 1.8.2` + `opentelemetry-sdk 1.44.0`) that made
+`configure_azure_monitor()` raise `ImportError` at startup on every 07-17
+rebuild, silently swallowed by `main.py`'s defensive try/except. Fixed via
+PR #23 (external review, verified independently by reproducing both the
+break and the fix in clean venvs), merged to main as `98a3909`, deployed to
+the live Alliant build, and confirmed live: `AppRequests`/`AppDependencies`/
+`AppTraces`/`AppGenAIContent` all show real rows matching a fresh
+`verify-prototype.py` run, including full Agent Framework GenAI spans
+(`gen_ai.operation.name: invoke_agent`, real agent names, token usage, tool
+definitions).
+
+**Important lesson embedded in this resolution:** the "workspace-wide zero
+ingestion for 24h" finding from earlier in the session was itself a red
+herring layered on top of the real bug — querying via
+`az monitor app-insights query --app <id>` against classic table names
+(`requests`/`traces`/`dependencies`) returns nothing for a **workspace-based**
+Application Insights resource; the actual Kusto tables are the `App*`-prefixed
+ones (`AppRequests`, `AppTraces`, `AppDependencies`, `AppExceptions`,
+`AppMetrics`, `AppGenAIContent`, ...). Always query those directly against
+the Log Analytics workspace when `ingestionMode: LogAnalytics` is set on the
+component (confirm via `az monitor app-insights component show`).
+
+**Still genuinely open (separate, lower-priority issue):**
+`ContainerAppConsoleLogs` remains at 0 rows even an hour after the fix —
+confirmed via a direct count query. This is the platform stdout/stderr log
+pipe (via the `cae-console-logs` diagnostic setting from RESOLVED #38), a
+completely independent mechanism from the Application Insights SDK
+telemetry pipe that's now fixed. Not blocking — the SDK-level
+requests/traces/GenAI telemetry is the one that actually matters for
+observability, and it's fully live. Revisit `ContainerAppConsoleLogs`
+separately if console log visibility becomes a real need.
+
+---
+
+**Original bug report (superseded, kept for history):**
+
+Infra fixes applied and confirmed at the config level (see
 [RESOLVED.md #38](RESOLVED.md)). Live data was NOT yet confirmed in either
 pipe by the end of the 2026-07-17 session — last check showed 0 rows in
 both `ContainerAppConsoleLogs` and Application Insights `requests`/`traces`,
 roughly 30-40 minutes after the `appLogsConfiguration` fix was applied.
+
 
 **Why this isn't necessarily a bug:** Microsoft's own Container Apps
 logging docs state *"If there's an error when running a query, try again

@@ -1502,3 +1502,124 @@ platform-generated signals that don't depend on application code at all
 workspace) — this quickly distinguishes "still a code bug" from "an
 infrastructure/ingestion bug upstream of any code," rather than
 re-auditing the same application layer repeatedly.
+
+## 40. The actual root cause of the whole telemetry saga: a poisoned pip dependency resolution (PR #23, external review)
+
+**Context:** #38 and #39 fixed every app-level gap that direct debugging
+surfaced (missing `configure_azure_monitor()` call, missing diagnostic
+settings resource, missing `enable_instrumentation()`), yet verification
+kept coming back with zero data — #39 concluded this must be a
+workspace-wide Log Analytics ingestion outage. That conclusion was wrong,
+or at least incomplete: an external review (Claude Code, via PR #23)
+found the actual bug by reproducing the app's dependency resolution in a
+clean environment instead of trusting the "all app-level gaps are fixed"
+assumption.
+
+**The real bug:** `backend/requirements.txt` co-pinned individual
+OpenTelemetry packages (`opentelemetry-sdk>=1.39.0`,
+`opentelemetry-instrumentation-fastapi>=0.50b0`) alongside the
+`azure-monitor-opentelemetry` distro, all with open-ended lower bounds and
+no upper bounds. `opentelemetry-sdk 1.44.0` was published 2026-07-16 — the
+day before this debugging session — and every `azd deploy app` rebuild on
+07-17 picked it up as the newest SDK satisfying `>=1.39.0`. pip's
+backtracking resolver then had to find an `azure-monitor-opentelemetry`
+version compatible with that fresh SDK, and landed on the OLDER `1.8.2`
+(whose own version constraint happened to be wide enough to accept 1.44.0,
+despite never having been tested against it). `azure-monitor-opentelemetry
+1.8.2`'s log exporter still imports a symbol removed in SDK 1.44.0:
+
+```
+ImportError: cannot import name 'LogData' from 'opentelemetry.sdk._logs'
+```
+
+That exception fires *inside* `configure_azure_monitor()` — caught by
+`main.py`'s defensive try/except (added in #38 specifically to prevent a
+telemetry failure from crashing the app), printed to stdout (which itself
+went nowhere queryable until #38's console-log fixes), leaving
+`_TELEMETRY_CONFIGURED = False`. The app served every request completely
+normally, with zero SDK telemetry, no visible error anywhere a normal user
+or even careful CLI debugging would look. This is why nothing #38/#39
+implemented ever produced visible data — there was no working exporter
+underneath any of it.
+
+**Independent verification (not just trusting the PR description):**
+reproduced both sides in clean venvs.
+- Installing the OLD three-line pin block resolved to exactly
+  `opentelemetry-sdk 1.44.0` + `azure-monitor-opentelemetry 1.8.2`, and
+  `from azure.monitor.opentelemetry import configure_azure_monitor` raised
+  the exact `ImportError` above.
+- Installing the fixed single line (`azure-monitor-opentelemetry>=1.8.9`,
+  no explicit sub-package pins) resolved to `distro 1.8.9 + sdk 1.43.0 +
+  opentelemetry-instrumentation-fastapi 0.64b0`, and the same import
+  succeeded cleanly.
+
+**Fix:** dropped the explicit `opentelemetry-sdk`/
+`opentelemetry-instrumentation-fastapi` pins from
+`accelerator/templates/prototype/backend/requirements.txt` entirely — the
+`azure-monitor-opentelemetry` distro already declares and manages its own
+compatible OTel stack, including FastAPI instrumentation. Raised the floor
+to `azure-monitor-opentelemetry>=1.8.9`. Merged via PR #23 (squash merge
+`98a3909`), synced into `generated/prototype/`, redeployed to the live
+Alliant build via `azd deploy app`.
+
+**Verified live, end to end:** ran `verify-prototype.py` (4/4 PASS) against
+the redeployed app, then queried the Log Analytics workspace directly for
+the workspace-native App Insights tables (see the lesson below for why
+this matters) and found real, fresh rows exactly matching the test run:
+`AppRequests` (7 rows — `HTTP /chat`, `GET /config`, `GET /health`, correct
+durations), `AppDependencies` (81), `AppTraces` (9), and — the definitive
+proof Agent Framework's own instrumentation is working —
+`AppGenAIContent` (4 rows) with real `gen_ai.operation.name: invoke_agent`
+spans, `gen_ai.provider.name: microsoft.agent_framework`, real agent names
+(`RiskAssessmentAgent-prototype`, `PolicyProgramAgent-prototype`), token
+usage counts, and captured tool definitions.
+
+**The #39 "workspace-wide zero ingestion" finding was a compounding
+misdiagnosis, not a separate bug:** it had two causes layered together.
+(1) The real cause: telemetry genuinely wasn't being generated at all,
+because `configure_azure_monitor()` was crashing before it could export
+anything. (2) A diagnostic-methodology error on top of that: querying via
+`az monitor app-insights query --app <id>` against the classic table
+names (`requests`/`traces`/`dependencies`) returns nothing for a
+**workspace-based** Application Insights resource (confirmed via
+`ingestionMode: LogAnalytics` on the component) — the real Kusto tables
+in that mode are the `App*`-prefixed ones (`AppRequests`, `AppTraces`,
+`AppDependencies`, `AppExceptions`, `AppMetrics`, `AppGenAIContent`, ...).
+Once (1) was fixed, querying the correct table names immediately showed
+data that had been flowing normally all along.
+
+**Still genuinely open, separate issue:** `ContainerAppConsoleLogs` (the
+platform stdout/stderr pipe via #38's diagnostic setting) remained at 0
+rows even an hour after this fix — confirmed with a direct count query.
+This is a completely different mechanism from the Application Insights
+SDK pipe fixed here, and doesn't block observability in any meaningful
+way now that the actual telemetry (requests/traces/GenAI spans) is
+flowing. Tracked as a low-priority follow-up in `TEMP_BACKLOG.md` if
+console log visibility is ever needed.
+
+**Lessons:**
+- An unbounded version pin (`>=X`) on a package that's also a transitive
+  dependency of a higher-level "distro" package can let pip's backtracking
+  resolver silently pick an incompatible pair neither half was tested
+  against — especially when the distro's own version is allowed to
+  *decrease* to find compatibility with an unexpectedly-new transitive
+  dependency. Don't co-pin packages that a "batteries-included" package
+  already manages; let it own its own dependency graph.
+- A defensive try/except around a telemetry setup call (added specifically
+  so a broken exporter can't crash the whole app) is exactly the kind of
+  code that can mask a real, fixable bug for an extended period — the
+  exception fired every single time, correctly, and was still invisible
+  until console logging itself was fixed (#38) and someone thought to
+  actually read the startup output.
+- Always verify a query returns *some* rows for *anything* known-good
+  before concluding "zero rows = broken pipe" — check whether the query
+  is even hitting the right table/schema for the resource's actual
+  configuration (classic vs. workspace-based Application Insights use
+  different Kusto table names) before escalating to an infrastructure
+  investigation.
+- When a second, independent set of eyes (a different agent/session)
+  offers to review a stuck problem, let them re-derive the diagnosis from
+  scratch by reproducing the environment rather than starting from "here's
+  what's already been ruled out" — the prior session's conclusion (workspace
+  ingestion outage) was wrong, and starting fresh (a clean venv install of
+  the actual pinned requirements) is what surfaced the real bug.
