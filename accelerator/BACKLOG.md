@@ -133,6 +133,44 @@ If Copilot ever ships parallel-tool-call or overlapping-tool-call support in age
 
 ---
 
+## Descoped — intentional UX simplifications (not bugs, don't "fix")
+
+### Descoped: confidence score + recommended action on every chat response
+- **Status:** Descoped 2026-07-17 (Alliant build session, user request). Not a
+  bug — a deliberate UX simplification.
+- **What changed:** Every specialist response previously required
+  `confidence` (0.0-1.0) and `recommended_action` (string) as top-level
+  JSON keys, rendered as a metric pill ("confidence: 85%") and a
+  "Recommended action:" callout box under every single chat answer.
+  Removed both from the required schema
+  ([system_prompt_preamble.md](templates/prototype/agents/system_prompt_preamble.md))
+  and from the frontend renderer
+  ([index.html](templates/prototype/frontend/public/index.html)).
+- **Why:** `suggested_questions` (the follow-up chips) already covers "what
+  to explore next" conversationally. `confidence` is a self-reported,
+  uncalibrated LLM number — displayed on every response with the apparent
+  precision of a real metric, it adds visual noise without a clear
+  decision it drives (most users won't act differently on 82% vs. 91%).
+  `recommended_action` is conceptually more distinct (a task-oriented next
+  step vs. a conversational one) but the user chose to drop both together
+  for simplicity rather than keep a partial version.
+- **Code is preserved, not deleted:** the frontend rendering for both is
+  still present in `index.html`, just excluded (`confidence`) or commented
+  out (`recommended_action`) with inline comments pointing back to this
+  entry — see the "Key metrics pills" and "Recommended action" sections in
+  `renderStructuredJSON()`. Re-adding either just means un-commenting that
+  block and adding the key back to system_prompt_preamble.md's required
+  keys list.
+- **Applied to:** template files only by default (every future
+  `@devlead build`). Also manually applied to the live Alliant build this
+  session: synced `system_prompt_preamble.md` + `index.html` into
+  `generated/prototype/`, re-ran `register_agents.py` to bump agent
+  versions with the updated instructions, redeployed the frontend via
+  `azd deploy app`.
+- **Owner / target:** Done, no further action expected.
+
+---
+
 ## Bug forensics — issues seen in past runs but already fixed
 
 For historical context, see [RESOLVED.md](RESOLVED.md). Notable recent fixes touching the same code paths as items above:

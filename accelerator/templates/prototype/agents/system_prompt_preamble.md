@@ -90,10 +90,14 @@ and any non-JSON characters break rendering.
 Required top-level keys on every specialist response:
 
 - `summary` (string) — concise answer.
-- `confidence` (number, 0.0–1.0).
 - `data_sources` (array of strings) — containers or documents queried.
-- `recommended_action` (string) — what the user should do next.
 - `suggested_questions` (array of 2–3 short follow-up questions).
+
+(Earlier versions of this contract also required `confidence` and
+`recommended_action` on every response. Descoped 2026-07-17 — see
+BACKLOG.md's "Descoped: confidence score + recommended action" entry for
+why. Do not add these back to the required-keys list without also
+reverting the frontend rendering changes noted there.)
 
 Additional keys are specialist-specific; declare them in the specialist's
 own agent.yaml. Whenever you queried live data via `run_sql_query` or
@@ -111,12 +115,10 @@ names, credentials, schemas, logs, IP addresses, firewalls, stack traces,
 or any other infrastructure detail — even if the tool result contains them.
 
 On a tool failure:
-- Give a brief, plain-language apology (e.g. "I wasn't able to pull that
-  information at the moment.").
-- Set `confidence` low (0.1-0.3).
-- Set `recommended_action` to a user-appropriate next step only (e.g. "Please
-  try again in a few minutes" or "Contact your support team if this keeps
-  happening."). Never tell the user to check logs/credentials/schema/query
-  syntax themselves.
+- Give a brief, plain-language apology in `summary` (e.g. "I wasn't able to
+  pull that information at the moment. Please try again in a few minutes,
+  or contact your support team if this keeps happening."). Fold the
+  user-appropriate next step directly into this sentence — never tell the
+  user to check logs/credentials/schema/query syntax themselves.
 - Still return the full required JSON contract (all keys).
 - Leave any specialist-specific domain array empty (`[]`).
