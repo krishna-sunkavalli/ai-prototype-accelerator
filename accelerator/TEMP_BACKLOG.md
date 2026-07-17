@@ -26,15 +26,35 @@ ones (`AppRequests`, `AppTraces`, `AppDependencies`, `AppExceptions`,
 the Log Analytics workspace when `ingestionMode: LogAnalytics` is set on the
 component (confirm via `az monitor app-insights component show`).
 
-**Still genuinely open (separate, lower-priority issue):**
-`ContainerAppConsoleLogs` remains at 0 rows even an hour after the fix —
-confirmed via a direct count query. This is the platform stdout/stderr log
-pipe (via the `cae-console-logs` diagnostic setting from RESOLVED #38), a
-completely independent mechanism from the Application Insights SDK
-telemetry pipe that's now fixed. Not blocking — the SDK-level
-requests/traces/GenAI telemetry is the one that actually matters for
-observability, and it's fully live. Revisit `ContainerAppConsoleLogs`
-separately if console log visibility becomes a real need.
+**Console-log half — root cause found 2026-07-17 (config audit), fix in
+template:** the bicep was mixing two mutually exclusive routing mechanisms.
+Per Microsoft's Container Apps log-options doc, diagnostic settings on the
+environment only emit when `appLogsConfiguration.destination` is
+`'azure-monitor'` ("If you selected Azure Monitor as your logs destination,
+you must also configure the diagnostic settings"); with destination
+`'log-analytics'` (what the template set), the platform instead writes
+directly to the CUSTOM tables `ContainerAppConsoleLogs_CL` /
+`ContainerAppSystemLogs_CL` and the `cae-console-logs` diagnostic setting
+from RESOLVED #38 is silently ignored. So the standard
+`ContainerAppConsoleLogs` table that every check queried can never populate
+under the old config — 0 rows is the expected behavior, not latency.
+
+Fix applied to `container-app.bicep`: `appLogsConfiguration` switched to
+`{ destination: 'azure-monitor' }` (variant confirmed present in AVM
+`managed-environment` 0.13.3's discriminated union), keeping the existing
+diagnostic-settings resource as the single real routing mechanism into the
+standard tables. Requires `azd provision` on the live build (environment-
+level change) — remember the standing rule: follow it with `azd deploy app`
++ a response-BODY health check (placeholder-page regression hit twice
+before).
+
+Two quick live checks before/without re-provisioning:
+1. Query `ContainerAppConsoleLogs_CL | where TimeGenerated > ago(2h)` —
+   under the OLD config, console logs (if flowing at all) land there, not
+   in the standard table. Rows here confirm the whole diagnosis instantly.
+2. After the provision + redeploy, query the standard
+   `ContainerAppConsoleLogs` table and look for the
+   `"Azure Monitor telemetry configured: True"` startup line.
 
 ---
 
