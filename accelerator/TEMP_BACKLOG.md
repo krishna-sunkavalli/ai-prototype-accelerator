@@ -101,3 +101,39 @@ exhausted):**
 5. See full write-up in repo memory
    (`/memories/repo/ai-prototype-accelerator.md`, "enable_instrumentation()
    fix implemented + a DEEPER workspace-wide ingestion bug found").
+
+**Update 2026-07-17 (root cause found for the App Insights half — code/config
+audit, reproduced locally):** installing `backend/requirements.txt` verbatim
+in a clean venv and running `main.py`'s telemetry block fails inside
+`configure_azure_monitor()` itself:
+
+```
+ImportError: cannot import name 'LogData' from 'opentelemetry.sdk._logs'
+```
+
+Root cause: the requirements file co-pinned `opentelemetry-sdk>=1.39.0` and
+`opentelemetry-instrumentation-fastapi>=0.50b0` alongside
+`azure-monitor-opentelemetry>=1.6.0`. Those extra pins forced pip to
+backtrack the distro down to 1.8.2 while still allowing
+`opentelemetry-sdk` 1.44.0 — released **2026-07-16**, the day before the
+Alliant debugging session — which removed the `LogData` symbol the 1.8.2
+exporter still imports. Every `azd deploy app` image rebuild on 07-17
+resolved this broken combo, so `configure_azure_monitor()` raised at
+startup, `main.py`'s defensive try/except swallowed it (visible only as a
+`print()` to stdout — which itself went nowhere queryable until the
+RESOLVED #38 console-log fixes), `_TELEMETRY_CONFIGURED` stayed False, and
+the app served traffic with zero SDK-side telemetry. This fully explains
+the empty App Insights `requests`/`traces`/`dependencies` tables. It does
+NOT explain the empty `ContainerAppSystemLogs` (platform-generated) — that
+part remains an infra/ingestion question.
+
+Fix applied to the template: dropped the explicit `opentelemetry-*` pins
+(the distro declares its own compatible OTel stack, including the FastAPI
+instrumentation) and raised the floor to `azure-monitor-opentelemetry>=1.8.9`.
+Verified in a clean venv: full requirements resolve to distro 1.8.9 +
+sdk 1.43.0, `configure_azure_monitor()` + `enable_instrumentation()` both
+succeed, real (non-proxy) `TracerProvider`/`LoggerProvider` are installed
+globally, and `force_flush()` works on both. Needs an `azd deploy app`
+(image rebuild) on the live build, then re-check App Insights; look for the
+`"Azure Monitor telemetry configured: True"` startup line in
+`ContainerAppConsoleLogs` to confirm.
