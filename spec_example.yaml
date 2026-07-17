@@ -1,0 +1,153 @@
+customer:
+  name: Contoso
+  slug: contoso
+  industry: Retail & e-commerce
+  website: https://www.contoso.com
+
+branding:
+  agent_name: ContosoSupportCopilot
+  primary_color: "#0078D4"
+  accent_color: "#50E6FF"
+  font_family: "Segoe UI, system-ui, sans-serif"
+  logo_url: ""
+  welcome_message: "Hi, I'm here to help you look up orders, explain policies, and troubleshoot products."
+
+use_case:
+  title: Customer Support Assistant
+  description: >
+    Contoso's support agents field a high volume of repetitive questions about order status,
+    returns eligibility, and product troubleshooting across email, chat, and phone. This assistant
+    lets them ask natural-language questions and get instant, cited answers so they can resolve
+    tickets faster and spend more time on complex escalations.
+
+deployment:
+  environment_name: contoso-prototype
+  resource_group: rg-contoso-prototype
+  azure_region: eastus2
+  database_name: contoso-db
+
+agents:
+  - name: OrderStatusAgent
+    role: Looks up order status, shipment tracking, and delivery estimates
+    model: gpt-4o
+    routing_keywords: [order, shipment, tracking, delivery]
+    tools: [search_tool, sql_tool]
+    skills:
+      - name: order_lookup
+        description: Find an order by ID or customer and summarize its current status.
+    system_prompt_focus: >
+      Help support agents quickly find an order's status, shipment carrier, tracking number, and
+      expected delivery date, citing the order record used to answer.
+    response_format: [bulleted, cite_sources]
+
+  - name: ReturnsPolicyAgent
+    role: Explains return, refund, and exchange eligibility and process
+    model: gpt-4o-mini
+    routing_keywords: [return, refund, exchange, policy]
+    tools: [search_tool]
+    skills:
+      - name: returns_eligibility
+        description: Determine whether an order qualifies for return/refund/exchange and outline next steps.
+    system_prompt_focus: >
+      Answer questions about the returns and refund policy clearly, including eligibility windows,
+      restocking fees, and exceptions, citing the relevant policy document.
+    response_format: [bulleted, cite_sources]
+
+  - name: ProductSupportAgent
+    role: Troubleshoots common product issues and setup questions
+    model: gpt-4o
+    routing_keywords: [troubleshoot, setup, product issue, defect]
+    tools: [search_tool, sql_tool]
+    skills:
+      - name: troubleshooting_guidance
+        description: Walk through common fixes for a product issue before recommending a return or exchange.
+    system_prompt_focus: >
+      Provide step-by-step troubleshooting guidance for common product issues, referencing known
+      defects or FAQs, and recommend escalation to a return only when troubleshooting is exhausted.
+    response_format: [bulleted, cite_sources]
+
+tables:
+  - name: orders
+    partition_key: /customerId
+    seed_count: 300
+    seed_scenario: Recent orders across electronics, home goods, and apparel with varied shipment statuses.
+    description: Customer orders placed through the Contoso storefront.
+    columns:
+      - { name: id, type: string }
+      - { name: customerId, type: string }
+      - { name: orderDate, type: date }
+      - { name: status, type: string }
+      - { name: trackingNumber, type: string }
+      - { name: total, type: number }
+
+  - name: returns
+    partition_key: /customerId
+    seed_count: 150
+    seed_scenario: Return and exchange requests tied to existing orders with varied approval status.
+    description: Return, refund, and exchange requests linked to customer orders.
+    columns:
+      - { name: id, type: string }
+      - { name: customerId, type: string }
+      - { name: orderId, type: string }
+      - { name: reason, type: string }
+      - { name: status, type: string }
+      - { name: requestDate, type: date }
+
+  - name: support_tickets
+    partition_key: /customerId
+    seed_count: 200
+    seed_scenario: Open and resolved support tickets covering shipping, billing, and product issues.
+    description: Support tickets raised by customers across support channels.
+    columns:
+      - { name: id, type: string }
+      - { name: customerId, type: string }
+      - { name: category, type: string }
+      - { name: priority, type: string }
+      - { name: status, type: string }
+
+documents:
+  - title: Returns & Refunds Policy
+    description: Eligibility windows, restocking fees, and exceptions for returns, refunds, and exchanges.
+    key_topics: [return window, refund process, restocking fee, exceptions]
+
+  - title: Shipping & Delivery Guide
+    description: Shipping carriers, delivery timeframes, and how to interpret tracking statuses.
+    key_topics: [shipping carriers, delivery estimates, tracking statuses]
+
+  - title: Product Troubleshooting FAQ
+    description: Common product issues and step-by-step fixes before recommending a return.
+    key_topics: [setup issues, common defects, troubleshooting steps]
+
+starter_questions:
+  - What is the status of order #10482?
+  - Is this order still eligible for a return?
+  - How long does standard shipping take?
+  - My device won't turn on, what should I try?
+
+demo_persona:
+  name: Priya Nair
+  role: Customer Support Agent
+
+foundry_iq:
+  index_name: contoso-knowledge
+
+model_deployments:
+  - deployment_name: gpt-4o
+    model: gpt-4o
+    version: "2024-11-20"
+    sku: GlobalStandard
+    capacity: 30
+  - deployment_name: gpt-4o-mini
+    model: gpt-4o-mini
+    version: "2024-07-18"
+    sku: GlobalStandard
+    capacity: 30
+  - deployment_name: text-embedding-3-large
+    model: text-embedding-3-large
+    version: "1"
+    sku: Standard
+    capacity: 30
+
+mock_api:
+  enabled: false
+  endpoints: []

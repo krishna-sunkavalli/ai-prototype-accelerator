@@ -9,6 +9,13 @@ generated/prototype/agents/*
 !generated/prototype/agents/knowledge/
 !generated/prototype/agents/knowledge/.gitkeep
 
+# Per-customer spec — every build overwrites this with a specific customer's
+# data (name, branding, agents, seed data). Only spec_example.yaml (a
+# generic Contoso reference) is tracked. Backups like spec.yaml.bak-* from
+# @reset are also local-only.
+/spec.yaml
+spec.yaml.bak-*
+
 # Deployment history — local reference only, not committed
 deploy-history/
 
