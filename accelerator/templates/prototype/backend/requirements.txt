@@ -28,6 +28,12 @@ httpx==0.27.0
 pyyaml==6.0.1
 
 # Observability
-opentelemetry-sdk>=1.39.0
-opentelemetry-instrumentation-fastapi>=0.50b0
-azure-monitor-opentelemetry>=1.6.0
+# Do NOT pin opentelemetry-* packages here — the azure-monitor-opentelemetry
+# distro declares its own compatible OTel sdk/instrumentation versions
+# (including opentelemetry-instrumentation-fastapi). Co-pinning them forced
+# pip to backtrack to azure-monitor-opentelemetry 1.8.2 alongside
+# opentelemetry-sdk 1.44.0 (released 2026-07-16), whose exporter still
+# imports the removed `opentelemetry.sdk._logs.LogData` — so
+# configure_azure_monitor() raised ImportError at startup and the app ran
+# with zero telemetry (swallowed by main.py's defensive try/except).
+azure-monitor-opentelemetry>=1.8.9
