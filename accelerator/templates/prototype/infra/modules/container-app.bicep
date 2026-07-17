@@ -97,11 +97,22 @@ param minReplicas int = 0
 param maxReplicas int = 5
 
 // ── Container Apps Environment ───────────────────────────────
-// appLogsConfiguration wires stdout/stderr from every replica into Log
-// Analytics so `ContainerAppConsoleLogs` and `az containerapp logs show`
-// actually return data. Without this, appLogsConfiguration.destination
-// stays null and console logs go nowhere queryable (confirmed on the
-// Alliant build, 2026-07-17 -- see RESOLVED.md).
+// Console/system log routing has TWO mutually exclusive mechanisms, and
+// mixing them silently breaks the pipe (Alliant build, 2026-07-17):
+//   1. destination 'log-analytics' (+ workspace key) writes directly to
+//      the CUSTOM tables `ContainerAppConsoleLogs_CL` /
+//      `ContainerAppSystemLogs_CL`; diagnostic settings are IGNORED in
+//      this mode.
+//   2. destination 'azure-monitor' emits through Azure Monitor, and a
+//      diagnostic-settings resource on the environment routes the
+//      STANDARD tables `ContainerAppConsoleLogs`/`ContainerAppSystemLogs`
+//      to a workspace. Microsoft: "If you selected Azure Monitor as your
+//      logs destination, you must also configure the diagnostic settings."
+// This template previously set destination 'log-analytics' AND created
+// diagnostic settings — so the diagnostic setting never emitted, and the
+// standard tables stayed at 0 rows forever. Use 'azure-monitor' so the
+// diagnostic setting below is the single, real routing mechanism and
+// logs land in the standard tables everyone queries.
 module environment 'br/public:avm/res/app/managed-environment:0.13.3' = {
   name: 'deploy-cae'
   params: {
@@ -110,20 +121,16 @@ module environment 'br/public:avm/res/app/managed-environment:0.13.3' = {
     tags: tags
     appInsightsConnectionString: appInsightsConnectionString
     appLogsConfiguration: empty(logAnalyticsWorkspaceResourceId) ? null : {
-      destination: 'log-analytics'
-      logAnalyticsWorkspaceResourceId: logAnalyticsWorkspaceResourceId
+      destination: 'azure-monitor'
     }
     zoneRedundant: false
     publicNetworkAccess: 'Enabled'
   }
 }
 
-// `appLogsConfiguration` above alone is NOT sufficient for
-// `ContainerAppConsoleLogs` to actually appear in Log Analytics -- Azure
-// Monitor diagnostic settings must ALSO be created against the
-// environment resource itself. Confirmed missing on the Alliant build,
-// 2026-07-17: `az monitor diagnostic-settings list --resource <cae-id>`
-// returned `[]` even with appLogsConfiguration.destination set correctly.
+// The diagnostic-settings resource that actually routes
+// `ContainerAppConsoleLogs`/`ContainerAppSystemLogs` to the workspace
+// when destination is 'azure-monitor' (see block comment above).
 // Diagnostic settings for log categories can only be created at the
 // ENVIRONMENT level -- the container-app-level diagnostic-settings API
 // only accepts a metrics category (`AllMetrics`), it rejects
