@@ -128,7 +128,6 @@ def main() -> None:
     branding = spec["branding"]
     use_case = spec["use_case"]
     foundry = spec["foundry_iq"]
-    chunking = foundry.get("chunking", {})
     demo = spec["demo_persona"]
     mock = spec.get("mock_api", {}) or {}
 
@@ -272,8 +271,6 @@ def main() -> None:
         ],
         "foundryIq": {
             "indexName": foundry["index_name"],
-            "chunkSize": chunking.get("chunk_size", 1024),
-            "overlap": chunking.get("overlap", 128),
         },
         "mockApiEnabled": bool(mock.get("enabled", False)),
         "mockApiEndpoints": mock.get("endpoints", []) or [],

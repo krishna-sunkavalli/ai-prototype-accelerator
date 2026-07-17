@@ -12,9 +12,13 @@ Architecture:
     NOT the classic Assistants API.
   - AgentSession (agent_framework) maintains per-specialist per-user
     conversation history across turns via previous_response_id.
-  - MAF's FunctionInvocationLayer executes tool callables (SQL, AI Search)
-    locally inside this container. Foundry never receives raw data — only
-    the serialised string output of each tool call crosses the boundary.
+  - MAF's FunctionInvocationLayer executes local tool callables (SQL,
+    mock API) inside this container. Foundry never receives raw data —
+    only the serialised string output of each tool call crosses the
+    boundary. Knowledge base retrieval is NOT a local callable: it's a
+    native MCP tool (knowledge_base_retrieve) declared directly on the
+    registered PromptAgent by register_agents.py, executed server-side
+    by Foundry's Responses API against the Foundry IQ knowledge base.
   - Triage routing is a single-turn call through the triage FoundryAgent;
     no session is needed because routing decisions are stateless.
 """
@@ -33,7 +37,7 @@ from azure.identity import DefaultAzureCredential, ManagedIdentityCredential
 from agent_framework.foundry import FoundryAgent
 from agent_framework import AgentSession
 
-from agents.tools import sql_tool, search_tool, mock_api_tool, activity, confirmations
+from agents.tools import sql_tool, mock_api_tool, activity, confirmations
 
 logger = logging.getLogger(__name__)
 
@@ -61,8 +65,13 @@ _LAST_EXCHANGE_CAP = 500
 
 _TOOL_CALLABLES = {
     "run_sql_query": sql_tool.run_sql_query,
-    "search_knowledge_base": search_tool.search_knowledge_base,
     "call_mock_api": mock_api_tool.call_mock_api,
+    # NOTE: "search_knowledge_base" is intentionally absent. It's no longer a
+    # local FunctionTool -- register_agents.py attaches it as a native MCP
+    # tool (knowledge_base_retrieve) on the registered PromptAgent, which
+    # Foundry's Responses API executes server-side. There is nothing for
+    # MAF's FunctionInvocationLayer to dispatch locally; _tools_for_agent()
+    # below silently drops any agent.yaml tool name not in this dict.
 }
 
 

@@ -96,6 +96,15 @@ assign_cosmos_rbac() {
 }
 
 # Helper: assign ARM role
+# ptype defaults to ServicePrincipal (correct for the MI). The deployer OID
+# (step 2) only ever resolves via `az ad signed-in-user show`, which
+# succeeds only for an interactively signed-in human -- meaning whenever
+# DEPLOYER_OID is non-empty it is ALWAYS type 'User', never
+# 'ServicePrincipal'. Passing the wrong hint doesn't just get ignored: ARM
+# rejects the assignment outright with UnmatchedPrincipalType. That error
+# was invisible here because the original call swallowed stdout/stderr AND
+# never checked the exit code -- always printing "OK" regardless. Every
+# deployer-scoped call below must pass "User" explicitly as the 5th arg.
 assign_arm_role() {
   local oid="$1"
   local role="$2"
@@ -103,13 +112,18 @@ assign_arm_role() {
   local label="$4"
   local ptype="${5:-ServicePrincipal}"
   [ -z "${oid}" ] || [ -z "${scope}" ] && return
-  az role assignment create \
+  local role_output
+  role_output=$(az role assignment create \
     --assignee-object-id "${oid}" \
     --assignee-principal-type "${ptype}" \
     --role "${role}" \
-    --scope "${scope}" \
-    --output none 2>&1 | sed "s/^/   /" || true
-  echo "   OK: '${role}' -> ${label}"
+    --scope "${scope}" 2>&1)
+  if [ $? -ne 0 ]; then
+    echo "   FAILED: '${role}' -> ${label} -- ${role_output}"
+    FAILED=true
+  else
+    echo "   OK: '${role}' -> ${label}"
+  fi
 }
 
 # -- Step 3: Cosmos DB RBAC ---------------------------------------------------
@@ -120,12 +134,17 @@ assign_cosmos_rbac "${DEPLOYER_OID}" "Deployer"
 echo ""
 
 # -- Step 4: Storage RBAC -----------------------------------------------------
-echo "4)  Assigning Storage Blob Data Contributor to MI..."
+echo "4)  Assigning Storage Blob Data Contributor to MI + Deployer..."
 STORAGE_ID=$(az storage account show \
   --name "${AZURE_STORAGE_ACCOUNT_NAME}" \
   --resource-group "${AZURE_RESOURCE_GROUP}" \
   --query id --output tsv 2>/dev/null || true)
 assign_arm_role "${MI_OID}" "Storage Blob Data Contributor" "${STORAGE_ID}" "Managed Identity"
+# L13 fix: the doc-upload step (step 9) uses `az storage blob upload-batch
+# --auth-mode login`, which authenticates as the DEPLOYER, not the MI. Without
+# this role the upload fails with 403 on every build -- silently, because the
+# original step 9 command discarded both stdout/stderr AND the exit code.
+assign_arm_role "${DEPLOYER_OID}" "Storage Blob Data Contributor" "${STORAGE_ID}" "Deployer" "User"
 echo ""
 
 # -- Step 5: AI Search RBAC ---------------------------------------------------
@@ -137,21 +156,25 @@ SEARCH_ID=$(az search service show \
   --query id --output tsv 2>/dev/null || true)
 assign_arm_role "${MI_OID}"       "Search Index Data Contributor" "${SEARCH_ID}" "Managed Identity"
 assign_arm_role "${MI_OID}"       "Search Service Contributor"   "${SEARCH_ID}" "Managed Identity"
-assign_arm_role "${DEPLOYER_OID}" "Search Index Data Contributor" "${SEARCH_ID}" "Deployer"
-assign_arm_role "${DEPLOYER_OID}" "Search Service Contributor"   "${SEARCH_ID}" "Deployer"
+assign_arm_role "${DEPLOYER_OID}" "Search Index Data Contributor" "${SEARCH_ID}" "Deployer" "User"
+assign_arm_role "${DEPLOYER_OID}" "Search Service Contributor"   "${SEARCH_ID}" "Deployer" "User"
 echo ""
 
 # -- Step 5b: AI Hub + Project RBAC (L17) ------------------------------------
-# L17: MI must have Azure AI User on BOTH the hub and project to call Agents API at runtime.
-echo "5b) Assigning Azure AI User to MI on AI Hub + Project..."
+# L17: MI must have Foundry User (formerly "Azure AI User") on BOTH the hub
+# and project to call Agents API at runtime. Microsoft renamed several
+# Foundry RBAC roles; the old name silently fails with "Role 'Azure AI
+# User' doesn't exist" -- previously invisible here because assign_arm_role
+# discarded stdout/stderr and never checked the exit code.
+echo "5b) Assigning Foundry User to MI on AI Hub + Project..."
 HUB_ID=$(az resource show \
   --name "${AZURE_AI_HUB_NAME}" \
   --resource-group "${AZURE_RESOURCE_GROUP}" \
   --resource-type "Microsoft.CognitiveServices/accounts" \
   --query id --output tsv 2>/dev/null || true)
 PROJ_ID="${HUB_ID}/projects/${AZURE_AI_PROJECT_NAME}"
-assign_arm_role "${MI_OID}" "Azure AI User" "${HUB_ID}"  "MI -> Hub"
-assign_arm_role "${MI_OID}" "Azure AI User" "${PROJ_ID}" "MI -> Project"
+assign_arm_role "${MI_OID}" "Foundry User" "${HUB_ID}"  "MI -> Hub"
+assign_arm_role "${MI_OID}" "Foundry User" "${PROJ_ID}" "MI -> Project"
 echo ""
 
 # -- Step 5c: AI Search's OWN identity -> Foundry hub + Storage (Foundry IQ) --
@@ -221,16 +244,25 @@ az storage container create \
 # Document filenames derived from manifest.json by fill-templates.py
 DOCS={{DOCS_BASH_ARRAY}}
 
-# L13: upload-batch with --auth-mode login
-az storage blob upload-batch \
+# L13: upload-batch with --auth-mode login (requires Storage Blob Data
+# Contributor on the DEPLOYER -- see step 4 -- since --auth-mode login
+# authenticates as the signed-in user, not the managed identity).
+UPLOAD_OUTPUT=$(az storage blob upload-batch \
   --account-name "${AZURE_STORAGE_ACCOUNT_NAME}" \
   --destination "${CONTAINER_NAME}/operational-docs" \
   --source "${DOCS_DIR}" \
   --pattern "*.md" \
   --auth-mode login \
-  --overwrite true \
-  --output none 2>&1 | sed "s/^/   /" || true
-echo "   OK: Operational documents uploaded."
+  --overwrite true 2>&1)
+UPLOAD_EXIT=$?
+if [ "${UPLOAD_EXIT}" -ne 0 ]; then
+  echo "   ERROR: Document upload failed (exit ${UPLOAD_EXIT})."
+  echo "${UPLOAD_OUTPUT}" | sed "s/^/   /"
+  FAILED=true
+else
+  UPLOADED_COUNT=$(find "${DOCS_DIR}" -maxdepth 1 -name '*.md' -type f | wc -l)
+  echo "   OK: Operational documents uploaded (${UPLOADED_COUNT} file(s))."
+fi
 echo ""
 
 # -- Step 10: Wire operational documents into a Foundry IQ knowledge base ----
@@ -287,6 +319,12 @@ body = {
         "isADLSGen2": False,
         "ingestionParameters": {
             "contentExtractionMode": "minimal",
+            # NOTE: chatCompletionModel must NOT be set when
+            # disableImageVerbalization is True -- the Search knowledge
+            # source API returns 400 "ChatCompletionModel must not be set
+            # when DisableImageVerbalization is true." chatCompletionModel
+            # is only used for image verbalization during ingestion, so it
+            # has no effect here anyway. See RESOLVED.md.
             "disableImageVerbalization": True,
             "embeddingModel": {
                 "kind": "azureOpenAI",
@@ -294,14 +332,6 @@ body = {
                     "resourceUri": ai_endpoint,
                     "deploymentId": "text-embedding-3-large",
                     "modelName": "text-embedding-3-large",
-                },
-            },
-            "chatCompletionModel": {
-                "kind": "azureOpenAI",
-                "azureOpenAIParameters": {
-                    "resourceUri": ai_endpoint,
-                    "deploymentId": "gpt-4o-mini",
-                    "modelName": "gpt-4o-mini",
                 },
             },
         },
@@ -326,9 +356,9 @@ else
   echo "   OK: Knowledge source '${KS_NAME}' created/updated (HTTP ${HTTP_STATUS})."
 fi
 
-KB_JSON=$(python3 - "$KB_NAME" "$KS_NAME" "$AI_SERVICES_ENDPOINT" "{{CUSTOMER_NAME}}" <<'PYEOF'
+KB_JSON=$(python3 - "$KB_NAME" "$KS_NAME" "$AI_SERVICES_ENDPOINT" "{{CUSTOMER_NAME}}" "{{KB_RETRIEVAL_INSTRUCTIONS}}" <<'PYEOF'
 import json, sys
-kb_name, ks_name, ai_endpoint, customer = sys.argv[1:5]
+kb_name, ks_name, ai_endpoint, customer, retrieval_instructions = sys.argv[1:6]
 body = {
     "name": kb_name,
     "description": f"Foundry IQ knowledge base for {customer} operational documents.",
@@ -341,8 +371,9 @@ body = {
             "modelName": "gpt-4o-mini",
         },
     }],
-    "outputMode": "extractedData",
+    "outputMode": "extractiveData",
     "retrievalReasoningEffort": {"kind": "low"},
+    "retrievalInstructions": retrieval_instructions,
 }
 print(json.dumps(body))
 PYEOF

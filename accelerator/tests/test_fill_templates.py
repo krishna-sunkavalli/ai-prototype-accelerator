@@ -66,7 +66,7 @@ def _manifest_for(workspace: pathlib.Path) -> dict:
         ],
         "documents": ["Onboarding Guide"],
         "documentSpecs": [{"title": "Onboarding Guide", "description": "", "key_topics": []}],
-        "foundryIq": {"indexName": "acme-idx", "chunkSize": 1024, "overlap": 128},
+        "foundryIq": {"indexName": "acme-idx"},
         "mockApiEnabled": False,
         "mockApiEndpoints": [],
         "aiLocation": "eastus2",

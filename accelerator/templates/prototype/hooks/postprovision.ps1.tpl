@@ -101,15 +101,31 @@ function Assign-CosmosRbac($oid, $label) {
 }
 
 # Helper: Assign ARM role
-function Assign-ArmRole($oid, $role, $scope, $label) {
+# principalType defaults to ServicePrincipal (correct for the MI). The
+# deployer OID (step 2) only ever resolves via `az ad signed-in-user show`,
+# which succeeds only for an interactively signed-in human -- meaning
+# whenever $DEPLOYER_OID is non-empty it is ALWAYS type 'User', never
+# 'ServicePrincipal'. Passing the wrong hint doesn't just get ignored: ARM
+# rejects the assignment outright with UnmatchedPrincipalType. That error
+# was invisible here because the original call swallowed stdout/stderr AND
+# never checked the exit code -- always printing "OK" regardless. Every
+# deployer-scoped call below must pass -PrincipalType 'User' explicitly.
+function Assign-ArmRole($oid, $role, $scope, $label, $principalType = "ServicePrincipal") {
   if ([string]::IsNullOrWhiteSpace($oid) -or [string]::IsNullOrWhiteSpace($scope)) { return }
-  az role assignment create `
+  $roleOutput = az role assignment create `
     --assignee-object-id $oid `
-    --assignee-principal-type ServicePrincipal `
+    --assignee-principal-type $principalType `
     --role $role `
-    --scope $scope `
-    --output none 2>&1 | Out-Null
-  Write-Host "   OK: '$role' -> $label"
+    --scope $scope 2>&1
+  if ($LASTEXITCODE -ne 0) {
+    Write-Host "   FAILED: '$role' -> $label -- $roleOutput"
+    # $script: scope required -- a bare `$FAILED = $true` here only sets a
+    # function-local variable in PowerShell and silently never reaches the
+    # final `if ($FAILED)` gate at the bottom of the script.
+    $script:FAILED = $true
+  } else {
+    Write-Host "   OK: '$role' -> $label"
+  }
 }
 
 Write-Host ""
@@ -122,7 +138,7 @@ Assign-CosmosRbac $DEPLOYER_OID "Deployer"
 Write-Host ""
 
 # -- Step 4: Storage RBAC -----------------------------------------------------
-Write-Host "4)  Assigning Storage Blob Data Contributor to MI..."
+Write-Host "4)  Assigning Storage Blob Data Contributor to MI + Deployer..."
 $STORAGE_ID = $null
 try {
   $STORAGE_ID = (az storage account show `
@@ -130,7 +146,12 @@ try {
     --resource-group $env:AZURE_RESOURCE_GROUP `
     --query id --output tsv 2>$null)
 } catch {}
-Assign-ArmRole $MI_OID "Storage Blob Data Contributor" $STORAGE_ID "Managed Identity"
+Assign-ArmRole $MI_OID       "Storage Blob Data Contributor" $STORAGE_ID "Managed Identity"
+# L13 fix: the doc-upload step (step 9) uses `az storage blob upload-batch
+# --auth-mode login`, which authenticates as the DEPLOYER, not the MI. Without
+# this role the upload fails with 403 on every build -- silently, because the
+# original step 9 command discarded both stdout/stderr AND the exit code.
+Assign-ArmRole $DEPLOYER_OID "Storage Blob Data Contributor" $STORAGE_ID "Deployer" "User"
 Write-Host ""
 
 # -- Step 5: AI Search RBAC ---------------------------------------------------
@@ -145,13 +166,17 @@ try {
 } catch {}
 Assign-ArmRole $MI_OID      "Search Index Data Contributor" $SEARCH_ID "Managed Identity"
 Assign-ArmRole $MI_OID      "Search Service Contributor"   $SEARCH_ID "Managed Identity"
-Assign-ArmRole $DEPLOYER_OID "Search Index Data Contributor" $SEARCH_ID "Deployer"
-Assign-ArmRole $DEPLOYER_OID "Search Service Contributor"   $SEARCH_ID "Deployer"
+Assign-ArmRole $DEPLOYER_OID "Search Index Data Contributor" $SEARCH_ID "Deployer" "User"
+Assign-ArmRole $DEPLOYER_OID "Search Service Contributor"   $SEARCH_ID "Deployer" "User"
 Write-Host ""
 
 # -- Step 5b: AI Hub + Project RBAC (L17) ------------------------------------
-# L17: MI must have Azure AI User on BOTH the hub and project to call Agents API at runtime.
-Write-Host "5b) Assigning Azure AI User to MI on AI Hub + Project..."
+# L17: MI must have Foundry User (formerly "Azure AI User") on BOTH the hub
+# and project to call Agents API at runtime. Microsoft renamed several
+# Foundry RBAC roles; the old name silently fails with "Role 'Azure AI
+# User' doesn't exist" -- previously invisible here because Assign-ArmRole
+# discarded stdout/stderr and never checked the exit code.
+Write-Host "5b) Assigning Foundry User to MI on AI Hub + Project..."
 $AI_HUB_NAME = $env:AZURE_AI_HUB_NAME
 $AI_PROJECT_NAME = $env:AZURE_AI_PROJECT_NAME
 $HUB_ID = $null
@@ -164,8 +189,8 @@ try {
     --query id --output tsv 2>$null)
   if ($HUB_ID) { $PROJ_ID = "$HUB_ID/projects/$AI_PROJECT_NAME" }
 } catch {}
-Assign-ArmRole $MI_OID "Azure AI User" $HUB_ID    "MI -> Hub"
-Assign-ArmRole $MI_OID "Azure AI User" $PROJ_ID   "MI -> Project"
+Assign-ArmRole $MI_OID "Foundry User" $HUB_ID    "MI -> Hub"
+Assign-ArmRole $MI_OID "Foundry User" $PROJ_ID   "MI -> Project"
 Write-Host ""
 
 # -- Step 5c: AI Search's OWN identity -> Foundry hub + Storage (Foundry IQ) --
@@ -238,16 +263,24 @@ az storage container create `
 # Document filenames derived from manifest.json by fill-templates.py
 $DOCS={{DOCS_PS_ARRAY}}
 
-# L13: upload-batch with --auth-mode login
-az storage blob upload-batch `
+# L13: upload-batch with --auth-mode login (requires Storage Blob Data
+# Contributor on the DEPLOYER -- see step 4 -- since --auth-mode login
+# authenticates as the signed-in user, not the managed identity).
+$uploadOutput = az storage blob upload-batch `
   --account-name $env:AZURE_STORAGE_ACCOUNT_NAME `
   --destination "$CONTAINER_NAME/operational-docs" `
   --source $DOCS_DIR `
   --pattern "*.md" `
   --auth-mode login `
-  --overwrite $true `
-  --output none 2>&1 | Out-Null
-Write-Host "   OK: Operational documents uploaded."
+  --overwrite $true 2>&1
+if ($LASTEXITCODE -ne 0) {
+  Write-Host "   ERROR: Document upload failed (exit $LASTEXITCODE)."
+  $uploadOutput | ForEach-Object { Write-Host "   $_" }
+  $FAILED = $true
+} else {
+  $uploadedCount = (Get-ChildItem -Path $DOCS_DIR -Filter *.md -File).Count
+  Write-Host "   OK: Operational documents uploaded ($uploadedCount file(s))."
+}
 Write-Host ""
 
 # -- Step 10: Wire operational documents into a Foundry IQ knowledge base ----
@@ -304,6 +337,12 @@ $KS_BODY = @{
     isADLSGen2 = $false
     ingestionParameters = @{
       contentExtractionMode = "minimal"
+      # NOTE: chatCompletionModel must NOT be set when
+      # disableImageVerbalization is $true -- the Search knowledge source
+      # API returns 400 "ChatCompletionModel must not be set when
+      # DisableImageVerbalization is true." chatCompletionModel is only
+      # used for image verbalization during ingestion, so it has no effect
+      # here anyway. See RESOLVED.md.
       disableImageVerbalization = $true
       embeddingModel = @{
         kind = "azureOpenAI"
@@ -311,14 +350,6 @@ $KS_BODY = @{
           resourceUri = $AI_SERVICES_ENDPOINT
           deploymentId = "text-embedding-3-large"
           modelName = "text-embedding-3-large"
-        }
-      }
-      chatCompletionModel = @{
-        kind = "azureOpenAI"
-        azureOpenAIParameters = @{
-          resourceUri = $AI_SERVICES_ENDPOINT
-          deploymentId = "gpt-4o-mini"
-          modelName = "gpt-4o-mini"
         }
       }
     }
@@ -357,8 +388,9 @@ $KB_BODY = @{
       modelName = "gpt-4o-mini"
     }
   })
-  outputMode = "extractedData"
+  outputMode = "extractiveData"
   retrievalReasoningEffort = @{ kind = "low" }
+  retrievalInstructions = "{{KB_RETRIEVAL_INSTRUCTIONS}}"
 } | ConvertTo-Json -Depth 10
 
 try {

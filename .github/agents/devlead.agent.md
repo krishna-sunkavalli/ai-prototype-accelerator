@@ -353,7 +353,6 @@ accelerator/templates/prototype/backend/api/
 accelerator/templates/prototype/agents/orchestrator.py
 accelerator/templates/prototype/agents/register_agents.py
 accelerator/templates/prototype/agents/tools/sql_tool.py
-accelerator/templates/prototype/agents/tools/search_tool.py
 accelerator/templates/prototype/agents/tools/mock_api_tool.py
 accelerator/templates/prototype/agents/tools/tool_definitions.yaml
 accelerator/templates/prototype/frontend/public/

@@ -28,7 +28,7 @@ Every technology used by a deployed `ai-prototype-accelerator` instance. Version
 | Service | Library | Used by |
 |---|---|---|
 | **Azure Cosmos DB for NoSQL** | [`azure-cosmos`](https://pypi.org/project/azure-cosmos/) `≥ 4.7.0` | [`agents/tools/sql_tool.py`](../accelerator/templates/prototype/agents/tools/sql_tool.py) (queries) and [`db/_seed_lib.py`](../accelerator/templates/prototype/db/_seed_lib.py) (seeding) — AAD-only, every projected column uses `c.` prefix |
-| **Azure AI Search** | [`azure-search-documents`](https://pypi.org/project/azure-search-documents/) `11.6.0` | [`agents/tools/search_tool.py`](../accelerator/templates/prototype/agents/tools/search_tool.py) — hybrid + semantic with extractive captions/answers |
+| **Azure AI Search (Foundry IQ)** | Native MCP tool, no `azure-search-documents` calls from application code | Knowledge retrieval is a native `knowledge_base_retrieve` MCP tool wired directly on the registered PromptAgent by [`agents/register_agents.py`](../accelerator/templates/prototype/agents/register_agents.py) via the RemoteTool connection created in [`infra/modules/foundry-search-connection.bicep`](../accelerator/templates/prototype/infra/modules/foundry-search-connection.bicep). Foundry's Responses API executes retrieval server-side against the Foundry IQ knowledge base (agentic subquery decomposition + reranking) — there is no local Python tool implementation. See [RESOLVED.md](../accelerator/RESOLVED.md) #31 |
 | **Azure Blob Storage** | [`azure-storage-blob`](https://pypi.org/project/azure-storage-blob/) `12.20.0` | Knowledge documents under `agents/knowledge/**` indexed into AI Search |
 | **Mock API** | In-process FastAPI router | Fixture data for prototypes without a real backend |
 

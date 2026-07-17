@@ -3,6 +3,50 @@ ai-prototype-accelerator — Application Entry Point
 Static scaffold file — do NOT modify when processing spec.yaml.
 """
 import os
+
+# Configure Azure Monitor OpenTelemetry BEFORE importing FastAPI (and before
+# any other instrumented library) so the distro's auto-instrumentation can
+# correctly patch it -- import order matters for this to work. No-op when
+# APPLICATIONINSIGHTS_CONNECTION_STRING isn't set (e.g. local dev without
+# Application Insights provisioned). connection_string is read from that env
+# var automatically; main.bicep already wires it into the Container App.
+#
+# Container Apps can scale to zero (minReplicas: 0 on this template) and can
+# terminate a replica shortly after its last request. The OTel SDK's default
+# BatchSpanProcessor only exports every few seconds, so a replica killed
+# between requests can lose whatever hasn't been flushed yet. Two defenses:
+# (1) shrink the batch schedule delay so spans/logs export almost
+# immediately instead of waiting out the default window, (2) force-flush the
+# global providers in the shutdown lifespan below so anything still
+# buffered goes out before the process exits.
+_TELEMETRY_CONFIGURED = False
+if os.environ.get("APPLICATIONINSIGHTS_CONNECTION_STRING"):
+    os.environ.setdefault("OTEL_BSP_SCHEDULE_DELAY", "1000")  # ms, default is 5000
+    os.environ.setdefault("OTEL_BLRP_SCHEDULE_DELAY", "1000")  # same, for the log record processor
+    try:
+        from azure.monitor.opentelemetry import configure_azure_monitor
+        configure_azure_monitor()
+        # Microsoft Agent Framework's own GenAI spans (invoke_agent/chat/
+        # execute_tool -- the actual agent/model/tool-call telemetry, not
+        # just generic HTTP request spans) are gated behind a SEPARATE
+        # instrumentation switch. configure_azure_monitor() only sets up
+        # the OTel export pipeline; it does NOT turn on agent_framework's
+        # instrumentation code paths. Without this call, orchestrator.py's
+        # FoundryAgent invocations never emit any telemetry at all, no
+        # matter how correctly the exporter is configured. See
+        # https://learn.microsoft.com/agent-framework/agents/observability
+        # ("Third party setup" pattern) and RESOLVED.md.
+        from agent_framework.observability import enable_instrumentation
+        enable_instrumentation()
+        _TELEMETRY_CONFIGURED = True
+    except Exception as exc:  # pragma: no cover - defensive; must never crash startup
+        # print(), not logger -- logging isn't configured yet at this point in
+        # module load, and this failure must be visible even if logging setup
+        # itself is what's broken.
+        print(f"WARNING: configure_azure_monitor() failed, continuing without "
+              f"tracing: {exc!r}")
+
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 
@@ -18,6 +62,27 @@ from agents import orchestrator
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+logger.info("Azure Monitor telemetry configured: %s", _TELEMETRY_CONFIGURED)
+
+
+def _flush_telemetry() -> None:
+    """Force-export any buffered spans/log records right now. Container Apps
+    can terminate a scaled-to-zero replica without much warning, so relying
+    solely on the batch processors' periodic timer risks losing whatever
+    hasn't been exported yet. Safe to call even if telemetry isn't
+    configured or a provider doesn't support force_flush()."""
+    if not _TELEMETRY_CONFIGURED:
+        return
+    try:
+        from opentelemetry.trace import get_tracer_provider
+        get_tracer_provider().force_flush()
+    except Exception as exc:  # pragma: no cover - best-effort, never fatal
+        logger.warning("Tracer provider flush failed: %r", exc)
+    try:
+        from opentelemetry._logs import get_logger_provider
+        get_logger_provider().force_flush()
+    except Exception as exc:  # pragma: no cover - best-effort, never fatal
+        logger.warning("Logger provider flush failed: %r", exc)
 
 
 @asynccontextmanager
@@ -52,10 +117,24 @@ async def lifespan(app: FastAPI):
     await orchestrator.warm_up()
     logger.info("Agent warm-up complete.")
 
+    # Periodically force-flush telemetry rather than only on clean shutdown --
+    # a scale-to-zero replica can be torn down without running the shutdown
+    # block below at all.
+    flush_task = None
+    if _TELEMETRY_CONFIGURED:
+        async def _periodic_flush() -> None:
+            while True:
+                await asyncio.sleep(10)
+                _flush_telemetry()
+        flush_task = asyncio.create_task(_periodic_flush())
+
     yield
 
     # ── Shutdown ──────────────────────────────────────────────────────────────
     logger.info("Shutting down...")
+    if flush_task is not None:
+        flush_task.cancel()
+    _flush_telemetry()
     await orchestrator.close_all_connections()
     logger.info("Shutdown complete.")
 

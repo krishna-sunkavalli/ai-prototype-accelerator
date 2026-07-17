@@ -37,8 +37,11 @@ Never write the sentinel as a plain timestamp.
 - generated/prototype/backend/api/routes.py
 - generated/prototype/agents/orchestrator.py
 - generated/prototype/agents/tools/sql_tool.py       ← uses run_sql_query() — must not be renamed
-- generated/prototype/agents/tools/search_tool.py    ← uses search_knowledge_base()
 - generated/prototype/agents/tools/mock_api_tool.py  ← uses call_mock_api()
+
+Note: `search_knowledge_base` is NOT a local tool file anymore — it's a
+native Foundry IQ MCP tool wired by `register_agents.py` (see RESOLVED.md
+#31). There is no `agents/tools/search_tool.py` to avoid touching.
 
 ---
 

@@ -20,18 +20,35 @@ reference MUST be prefixed with the container alias `c.` — including inside
 SELECT projections. Cosmos rejects bare identifiers with error `SC2001
 "Identifier ... could not be resolved"`.
 
+**Always pass the `container` argument explicitly** with the exact
+container name (e.g. `"clients"`, `"risk_assessments"`,
+`"loss_control_recommendations"`) — never omit it. The query text itself
+should still alias the container as `c` in the FROM clause (standard Cosmos
+SQL style), NOT the literal container name. The tool cannot reliably guess
+which container `FROM c` refers to on its own; a missing `container`
+argument fails the call outright.
+
 CORRECT:
 
-    SELECT c.id, c.status, c.updatedAt
-    FROM c
-    WHERE c.status IN ('open', 'in_progress')
-      AND c.assignedTo = @assignee
-    ORDER BY c.updatedAt DESC
-    OFFSET 0 LIMIT 20
+    container: "clients"
+    query:
+      SELECT c.id, c.status, c.updatedAt
+      FROM c
+      WHERE c.status IN ('open', 'in_progress')
+        AND c.assignedTo = @assignee
+      ORDER BY c.updatedAt DESC
+      OFFSET 0 LIMIT 20
 
 WRONG (fails with SC2001):
 
     SELECT id, status FROM c WHERE assignedTo = 'someone'
+
+WRONG (fails with "could not infer Cosmos container from query" — no
+`container` argument supplied and the FROM clause only says `c`, not a real
+container name):
+
+    query: SELECT c.riskScore FROM c ORDER BY c.riskScore DESC
+    (container argument omitted)
 
 - Parameters are a list of objects: `[{"name": "@assignee", "value": "..."}]` — not a dict.
 - Use `LIMIT` not `TOP`.
@@ -46,11 +63,18 @@ WRONG (fails with SC2001):
 
 ## Tool signatures
 
-- `run_sql_query(query, params, container)` — `params` is a **list** of
-  `{"name": "@x", "value": ...}` objects. `container` is optional; inferred
-  from the FROM clause when omitted.
-- `search_knowledge_base(query)` — semantic search over indexed operational
-  documents. Use for policy / narrative lookups, not live data.
+- `run_sql_query(query, container, params)` — `container` is **REQUIRED**:
+  the exact container name (e.g. `"clients"`). `params` is a **list** of
+  `{"name": "@x", "value": ...}` objects.
+- `knowledge_base_retrieve` — a native Foundry IQ MCP tool (not a
+  FunctionTool you construct arguments for by hand). It decomposes your
+  question into subqueries, searches the indexed operational documents,
+  and reranks results. Invoke it whenever a question needs policy /
+  narrative grounding rather than live data. If it returns nothing
+  relevant, say so plainly in `summary` (e.g. "I don't have that
+  information in the available documents") rather than answering from
+  general/training knowledge — never fabricate policy or narrative
+  content that didn't come back from retrieval.
 - `call_mock_api(endpoint, params)` — invoke a mock backend endpoint; only
   present when the mock API is enabled for this prototype.
 
@@ -79,7 +103,7 @@ into prose.
 
 ## Tool failures — never expose technical details to the user
 
-If `run_sql_query`, `search_knowledge_base`, or `call_mock_api` returns an
+If `run_sql_query`, `knowledge_base_retrieve`, or `call_mock_api` returns an
 error, times out, or otherwise fails, you MUST NOT repeat, paraphrase, or
 allude to the technical content of that failure. Never mention: query
 syntax, SQL/Cosmos error codes or messages, database/service/container

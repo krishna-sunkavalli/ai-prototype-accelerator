@@ -60,14 +60,56 @@ Update the **Status** column when work starts / ships. Move ✅ shipped items to
 - **Status:** ✅ Shipped 2026-07-15 — phase-level split (generation vs provisioning vs verification) shipped 2026-07-13; per-step active-vs-idle now also shipped. [`build-metrics.py`](scripts/build-metrics.py) gained a `step-start <sentinel-name>` command that each of the 6 LLM-driven specialists (`infra-agent`, `data-agent`, `agents-builder`, `docs-agent`, `backend-agent`, `hook-agent`) and devlead's own `01-spec-validator` invocation now call right after reading `manifest.json`, before doing any work. `summary()` pairs each step's `step-start` timestamp with its `.done` sentinel's `completedAt` to report `active <duration>, idle <duration>` per step, plus a totals section ("Active work" / "Idle/waiting"). Falls back to the old plain timeline line when a step has no recorded start (older builds, or a specialist that skipped the call) — no error, just less detail. Covered by [`test_build_metrics.py`](tests/test_build_metrics.py).
 
 ### 9. AI Search indexes whole documents with no chunking; embedding model deployed but unused
-- **Status:** Open — found 2026-07-15 during Alliant build review, not yet fixed.
-- **Symptom:** `spec.yaml`'s `foundry_iq.chunking.chunk_size`/`overlap` fields are captured into `manifest.json` (`foundryIq.chunkSize`/`overlap`) but never consumed anywhere in `fill-templates.py` or the postprovision hooks. The actual index (built in [`postprovision.ps1.tpl`](templates/prototype/hooks/postprovision.ps1.tpl) step 10) stores one full markdown file per search document in a plain `content` field — no chunking, no vector field. Retrieval is Azure AI Search's semantic ranker over keyword/BM25 search only. Meanwhile every build deploys a `text-embedding-3-large` model (cost + quota) that nothing in the runtime path ever calls.
-- **Root cause:** the chunking config and embedding deployment were added to the spec/manifest schema ahead of the retrieval implementation catching up; the postprovision indexing script was written against a simpler whole-document-per-file model and never revisited.
-- **Fix proposal:** either (a) wire `foundryIq.chunkSize`/`overlap` into the indexing script to split long docs into overlapping chunks per search document, add a `contentVector` field, and use the deployed embedding model to populate it (true vector/hybrid RAG) — or (b) if whole-document semantic search is intentionally "good enough" for prototype scale, drop the unused `chunking` schema fields and stop deploying the embedding model by default, saving quota/cost. Needs an explicit decision before either half is implemented.
-- **Owner / target:** Unassigned.
+- **Status:** ✅ Corrected + cleaned up 2026-07-16. Original claim was stale (see below); the dead
+  `chunking` config has since been removed. Move to RESOLVED.md on the next housekeeping pass.
+- **Original symptom (2026-07-15, pre-migration):** `spec.yaml`'s `foundry_iq.chunking.chunk_size`/`overlap`
+  fields are captured into `manifest.json` but weren't consumed anywhere; the postprovision script at
+  the time stored one full markdown file per search document in a plain `content` field — no chunking,
+  no vector field — while a `text-embedding-3-large` model sat deployed and unused.
+- **Why it's stale:** RESOLVED #28-#31 (2026-07-16) migrated the accelerator from that custom indexing
+  script to native Azure AI Search **knowledge sources** (`kind: azureBlob`). Per
+  [Microsoft's knowledge source docs](https://learn.microsoft.com/en-us/azure/search/agentic-knowledge-source-overview),
+  an indexed knowledge source auto-generates a *complete* pipeline (data source, skillset, indexer,
+  index) that is "populated **and chunked**" with integrated vectorization — this isn't optional or
+  something the accelerator needs to hand-roll.
+- **Verified live (Alliant build, 2026-07-16):** pulled the actual index schema
+  (`GET /indexes/{ks}-index`) and confirmed: (1) chunking is real — retrieval results show
+  `{uid}_pages_1`, `_pages_2`, ... suffixes, 9 chunk-documents from 3 source files; (2) a
+  `snippet_vector` field exists, type `Collection(Edm.Single)`, 3072 dimensions (matches
+  `text-embedding-3-large`); (3) a `vectorSearchProfile` + HNSW algorithm + an `azureOpenAI` vectorizer
+  pointing at the deployed `text-embedding-3-large` model are all configured; (4) a semantic
+  configuration is also present (`prioritizedContentFields: [snippet]`). So the embedding model
+  **is** being called automatically by the auto-generated skillset, and retrieval is genuine
+  hybrid (keyword + vector + semantic-rerank) search today, not keyword-only.
+- **Remaining real gap:** `foundryIq.chunkSize`/`overlap` from `spec.yaml` still flow into
+  `manifest.json` but are never consumed — however, this is now confirmed **unfixable as originally
+  proposed**, not just unimplemented. Checked the full documented `ingestionParameters` schema for a
+  blob knowledge source (both GA `2026-04-01` and preview `2026-05-01-preview`
+  [REST reference](https://learn.microsoft.com/en-us/azure/search/agentic-knowledge-source-how-to-blob)):
+  it only accepts `identity`, `disableImageVerbalization`, `chatCompletionModel`, `embeddingModel`,
+  `contentExtractionMode`, `ingestionSchedule`, `ingestionPermissionOptions`, `assetStore` — **no
+  chunk-size/overlap parameter exists**. Confirmed the live auto-generated `SplitSkill` uses fixed
+  `maximumPageLength: 2000` (characters) / `pageOverlapLength: 200`, which isn't an input you can
+  override via the knowledge source API. The only way to honor `spec.yaml`'s values would be
+  abandoning the auto-generated pipeline for a hand-rolled skillset — undoing the exact
+  simplification RESOLVED #28-#31 delivered, for no measurable quality gain (verified retrieval
+  already returns relevant results with the fixed defaults; `chunk_size` in `spec.yaml` is also in
+  different units — tokens vs. the pipeline's characters — so "wiring it through" would need
+  guesswork unit conversion regardless).
+- **Decision + action taken (2026-07-16):** went with option (b) — the `chunking` fields were dead
+  config with no viable consumer. Removed `foundry_iq.chunking.{chunk_size,overlap}` from
+  `spec.yaml`, the `chunking`/`chunkSize`/`overlap` lines in
+  [`spec-validator.py`](generators/spec-validator.py)'s manifest-building code, the `foundry_iq`
+  example block in [`business-analyst.agent.md`](../.github/agents/business-analyst.agent.md), the
+  documented manifest shape in [`spec-validator.md`](../.github/specialists/spec-validator.md), and
+  the stale test fixture in
+  [`test_fill_templates.py`](tests/test_fill_templates.py). `manifest_schema.py` needed no change —
+  it only ever required `foundryIq.indexName`, never `chunkSize`/`overlap`. All 72 unit tests still
+  pass. `foundry_iq` in `spec.yaml` is now just `index_name` — one line, matching what the
+  auto-generated knowledge-source pipeline actually consumes.
 - **Owner / target:** Done.
 
-### 11. AI Search serialized behind the Foundry hub during provisioning
+### 10. AI Search serialized behind the Foundry hub during provisioning
 - **Status:** ✅ Shipped 2026-07-15 — Search extracted into its own [`search.bicep`](templates/prototype/infra/modules/search.bicep) module with no params/dependency on the Foundry hub. Previously `searchService` lived inside `foundry-iq.bicep`, whose module invocation in `main.bicep` took `hubAccountName: foundry.outputs.aiHubName`, forcing ARM to serialize the *entire* module — including the unrelated Search resource — behind Foundry account creation (which includes subdomain-reservation checks and is often the slowest single resource). Search has no actual ARM dependency on Foundry; the vector-index-to-embedding-model wiring happens later in Python (postprovision). `main.bicep` now declares `module search` alongside `module foundry`/`module openAi` with no cross-dependency, so Azure schedules them in parallel — worth roughly 2-5 min off provisioning time. `foundry-iq.bicep` is now model-deployments-only.
 - **Owner / target:** Done.
 

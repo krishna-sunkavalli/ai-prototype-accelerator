@@ -291,9 +291,6 @@ demo_persona:
 
 foundry_iq:
   index_name: <slug>-knowledge
-  chunking:
-    chunk_size: 1024
-    overlap: 128
 
 model_deployments:
   - deployment_name: gpt-4o

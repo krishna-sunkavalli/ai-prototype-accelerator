@@ -77,7 +77,7 @@ about 8 resources in before Cosmos + Search failed on regional capacity. See
 issue #3 for the "preflight doesn't detect the mismatch" angle and issue #4
 for the region-capacity failure pattern that stranded partial resources.
 
-## 2. Cosmos DB seeding blocked by MCAPS governance policy
+## 2. Cosmos DB seeding (and now Foundry IQ knowledge wiring) blocked by MCAPS governance policy
 
 **Symptom:** During postprovision, step 8 (`cosmos_seed.py`) fails with
 `(Forbidden) Request originated from IP <ip> through public internet. This is
@@ -86,29 +86,88 @@ after `az cosmosdb update -p Enabled --ip-range-filter <ip>` — the API silentl
 resets `publicNetworkAccess` to `Disabled`. Running the seed from inside the
 deployed Container App via `az containerapp exec` fails the same way.
 
+**Updated 2026-07-16 (Alliant build):** The same governance pattern also hits
+the Storage account, breaking step 10 (Foundry IQ knowledge source/knowledge
+base wiring). Symptom: `az storage container list --account-name <acct>
+--auth-mode login` (or any data-plane blob call, including the Search
+service's system-assigned identity reading the `prototype-data` container)
+fails with `The request may be blocked by network rules of storage account.`
+`az storage account show -n <acct> --query publicNetworkAccess` returns
+`Disabled` with `networkRuleSet.defaultAction: Deny`, even though
+`bypass: AzureServices` is set — that bypass alone is not sufficient for
+Search's managed-identity blob reads. The earlier `az storage blob
+upload-batch --auth-mode login` call in step 9 of the *same* postprovision
+run still succeeds, which points to a timing race: bicep/the deployer's own
+upload happens before the `StorageAccount_PublicNetwork_Modify` policy
+remediation re-flips `publicNetworkAccess` back to `Disabled`, and by the
+time step 10 runs a few minutes later the account is locked down again.
+Confirmed via `az policy state list --resource <storage-account-id>`, which
+shows `StorageAccount_PublicNetwork_Modify` (and
+`StorageAccount_DisableLocalAuth_Modify`,
+`StorageAccount_BlobAnonymousAccess_Modify`) with effect `modify`.
+
 **Root cause:** Microsoft-CAPS subscriptions carry an assignment named
-`MCAPSGovDeployPolicies` with two `Modify` effects
-(`CosmosDB_PublicNetwork_Modify`, `CosmosDB_LocalAuth_Modify`) that continuously
-force `publicNetworkAccess: Disabled` and `disableLocalAuth: true` on every
-Cosmos account, regardless of what the bicep template declares. Container Apps
-traffic is still classified as "public internet" by Cosmos because the CA
-environment has no vnet integration, so the traffic never gains the
-`AzureServices` bypass tag.
+`MCAPSGovDeployPolicies` with `Modify` effects
+(`CosmosDB_PublicNetwork_Modify`, `CosmosDB_LocalAuth_Modify`,
+`StorageAccount_PublicNetwork_Modify`, `StorageAccount_DisableLocalAuth_Modify`,
+`StorageAccount_BlobAnonymousAccess_Modify`) that continuously force
+`publicNetworkAccess: Disabled` / `disableLocalAuth: true` on every Cosmos
+account **and** Storage account, regardless of what the bicep template
+declares. Container Apps and Azure AI Search traffic are still classified as
+"public internet" by these resources because neither the CA environment nor
+Search has vnet integration, so the traffic never gains the trusted-service
+exception in practice.
 
-**Workaround:** None automated. To seed the demo data you must either
-(a) request an exemption to `MCAPSGovDeployPolicies` for the RG so
-`publicNetworkAccess: Enabled` sticks, then re-run
-`azd provision --no-prompt` from a machine whose outbound IP you can pin,
-or (b) run the accelerator on a non-MCAPS subscription. The prototype is
-otherwise fully deployed: Foundry agents register, Search index is populated,
-Blob docs upload, Container App and health/config/websocket smoke tests all
-pass. Only the domain SQL rows are missing, so `sql_tool` queries return empty.
+**Workaround:** None automated. To seed the demo data and populate Foundry IQ
+you must either (a) request an exemption to `MCAPSGovDeployPolicies` for the
+RG so `publicNetworkAccess: Enabled` sticks on both Cosmos and Storage, then
+re-run `azd provision --no-prompt` from a machine whose outbound IP you can
+pin, or (b) run the accelerator on a non-MCAPS subscription. The prototype is
+otherwise fully deployed: Foundry agents register, Container App and
+health/config/websocket smoke tests all pass, operational docs upload to
+Blob successfully (the step-9 race window). Only the domain SQL rows are
+missing (`sql_tool` queries return empty) and the Foundry IQ knowledge
+source/base are not wired (`search_knowledge_base` has nothing indexed).
 
-**Planned fix:** Add optional Cosmos private endpoint + vnet-integrated
-Container Apps environment behind a spec flag (e.g. `deployment.private_network:
-true`). When enabled, cosmos.bicep provisions a PE in a delegated subnet, the
-CAE joins that subnet, and postprovision seeds via the private endpoint. Owner:
-next accelerator maintenance release.
+**Confirmed working (Alliant build, 2026-07-16):** Option (a) works end to
+end when you have `Owner`/`Resource Policy Contributor` on the subscription.
+Steps that closed the loop:
+1. Find the assignment: `az policy state list --resource <res-id> --query
+   "[?policyDefinitionName=='StorageAccount_PublicNetwork_Modify'].{a:policyAssignmentId}"`
+   (repeat for the Cosmos account) — on MCAPS this resolves to
+   `MCAPSGovDeployPolicies` assigned at the Tenant Root Group, not the
+   subscription, so `az policy assignment list` alone won't show it.
+2. Get the initiative's reference IDs: `az policy set-definition show
+   --name MCAPSGovDeployPolicies --management-group <root-mg-id> --query
+   "policyDefinitions[].policyDefinitionReferenceId"` — the ones needed are
+   `StorageAccountPublicNetworkModify`, `StorageAccountDisableLocalAuth`,
+   `ModifyAllowBlobAnonymousAccess`, `CosmosDBPublicNetworkModify`,
+   `ModifyCosmosDBLocalAuth`.
+3. Create the exemption: `az policy exemption create -n <name> --scope
+   /subscriptions/<subId> --policy-assignment <assignmentId>
+   --exemption-category Waiver --policy-definition-reference-ids <the 5
+   above> --expires-on <date>` (an expiry keeps this from becoming permanent
+   drift).
+4. Immediately re-enable public access — the exemption stops the *policy*
+   from re-locking it, but you still have to flip the setting yourself once:
+   `az cosmosdb update --name <acct> -g <rg> --public-network-access
+   Enabled` and `az storage account update --name <acct> -g <rg>
+   --public-network-access Enabled --default-action Allow`.
+5. Re-run `py accelerator/scripts/deploy.py` (or `azd provision`) — the
+   postprovision hook now seeds Cosmos and wires Foundry IQ successfully.
+   `verify-prototype.py` returns a plain `PASS`, not `DEGRADED-PASS`.
+
+Watch for policy remediation racing your manual `az ... update` — if the
+exemption doesn't cover every reference ID the specific resource is gated
+by, the setting can flip back to `Disabled` within minutes.
+
+**Planned fix:** Add optional Cosmos + Storage private endpoints and a
+vnet-integrated Container Apps environment / Search service behind a spec
+flag (e.g. `deployment.private_network: true`). When enabled, cosmos.bicep
+and storage.bicep provision PEs in a delegated subnet, the CAE and Search
+join or peer with that subnet, and postprovision seeds/wires data via the
+private endpoint instead of the public data plane. Owner: next accelerator
+maintenance release.
 
 ## 3. Preflight does not detect azd env / manifest drift
 

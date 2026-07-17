@@ -206,6 +206,22 @@ module search './modules/search.bicep' = {
   }
 }
 
+// ── Foundry project <-> Search connection ─────────────────────
+// Registers the Search resource on the Foundry project so the
+// Foundry portal's Knowledge (Foundry IQ) blade shows the
+// knowledge base without an operator manually adding a
+// connection. Depends on both foundry and search module outputs.
+module foundrySearchConnection './modules/foundry-search-connection.bicep' = {
+  name: 'deploy-foundry-search-connection'
+  params: {
+    aiHubName: foundry.outputs.aiHubName
+    aiProjectName: foundry.outputs.aiProjectName
+    searchServiceName: search.outputs.searchServiceName
+    searchEndpoint: search.outputs.searchEndpoint
+    searchIndexName: searchIndexName
+  }
+}
+
 // ── Container App ─────────────────────────────────────────────
 module app './modules/container-app.bicep' = {
   name: 'deploy-app'
@@ -214,6 +230,7 @@ module app './modules/container-app.bicep' = {
     location: location
     tags: commonTags
     appInsightsConnectionString: monitoring.outputs.appInsightsConnectionString
+    logAnalyticsWorkspaceResourceId: monitoring.outputs.logAnalyticsWorkspaceId
     managedIdentityResourceId: identity.outputs.resourceId
     managedIdentityClientId: identity.outputs.clientId
     containerImage: containerImage

@@ -180,13 +180,18 @@ def check_no_unresolved_placeholders(errors: list[str]) -> None:
 
 
 def check_tools_resolve(errors: list[str]) -> None:
-    """Every agent.yaml tool must be declared in tool_definitions.yaml."""
+    """Every agent.yaml tool must be declared in tool_definitions.yaml (or be
+    the native Foundry IQ MCP tool, which isn't a FunctionTool)."""
     tool_def_path = PROTO / "agents" / "tools" / "tool_definitions.yaml"
     if not tool_def_path.exists():
         return  # already reported by check_required_paths
     with open(tool_def_path, "r", encoding="utf-8") as f:
         defs = yaml.safe_load(f) or []
     known = {d.get("name") for d in defs if isinstance(d, dict)}
+    # "search_knowledge_base" in agent.yaml resolves to a native MCPTool in
+    # register_agents.py (see _MCP_TOOL_NAME there), not a tool_definitions.yaml
+    # FunctionTool entry -- it's intentionally absent from that catalogue.
+    known.add("search_knowledge_base")
 
     for agent_yaml in (PROTO / "agents" / "specialists").rglob("agent.yaml"):
         with open(agent_yaml, "r", encoding="utf-8") as f:
@@ -197,6 +202,37 @@ def check_tools_resolve(errors: list[str]) -> None:
                     errors,
                     f"{agent_yaml.relative_to(ROOT)}: tool '{t}' not in tool_definitions.yaml",
                 )
+
+
+# The Foundry IQ knowledge base's query-planning/reasoning model is hardcoded
+# in postprovision.ps1.tpl / postprovision.sh.tpl (not driven by manifest.json
+# like the KB's other fields), because it's cost-optimized and not expected
+# to vary per customer. Keep this in sync with the `deploymentId`/`modelName`
+# literal in both templates' $KB_BODY / KB_JSON payloads.
+_KB_REASONING_MODEL = "gpt-4o-mini"
+
+
+def check_kb_reasoning_model_deployed(errors: list[str]) -> None:
+    """The knowledge base creation payload hardcodes a reasoning model
+    (`_KB_REASONING_MODEL`) that isn't validated by the agents[].model ->
+    modelDeployments[].deploymentName cross-check (it's not an agent). If a
+    hand-edited spec.yaml ever drops that deployment, postprovision step 10
+    fails confusingly at deploy time instead of here."""
+    if not MANIFEST.exists():
+        return  # already reported by check_required_paths
+    manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
+    deployment_names = {
+        md.get("deploymentName") for md in (manifest.get("modelDeployments") or [])
+    }
+    if _KB_REASONING_MODEL not in deployment_names:
+        _err(
+            errors,
+            f"foundry_iq: knowledge base creation hardcodes reasoning model "
+            f"'{_KB_REASONING_MODEL}', but no model_deployments[] entry in "
+            f"spec.yaml has deployment_name: {_KB_REASONING_MODEL}. Add that "
+            f"deployment (see .github/agents/business-analyst.agent.md's "
+            f"canonical template) or postprovision step 10 will fail.",
+        )
 
 
 def _bicep_infra_files() -> list[pathlib.Path]:
@@ -1441,6 +1477,7 @@ def main() -> None:
     check_yaml_parses(errors)
     check_json_parses(errors)
     check_tools_resolve(errors)
+    check_kb_reasoning_model_deployed(errors)
     check_bicep_builds(errors)
     check_bicep_whatif(errors)
 

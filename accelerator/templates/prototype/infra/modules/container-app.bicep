@@ -17,6 +17,9 @@ param tags object = {}
 @description('Application Insights connection string (used for Container App Environment logging).')
 param appInsightsConnectionString string
 
+@description('Resource ID of the Log Analytics workspace to forward console/system logs to. Empty string omits appLogsConfiguration (platform default, which does not forward logs anywhere queryable).')
+param logAnalyticsWorkspaceResourceId string = ''
+
 @description('Resource ID of the user-assigned managed identity.')
 param managedIdentityResourceId string
 
@@ -94,6 +97,11 @@ param minReplicas int = 0
 param maxReplicas int = 5
 
 // ── Container Apps Environment ───────────────────────────────
+// appLogsConfiguration wires stdout/stderr from every replica into Log
+// Analytics so `ContainerAppConsoleLogs` and `az containerapp logs show`
+// actually return data. Without this, appLogsConfiguration.destination
+// stays null and console logs go nowhere queryable (confirmed on the
+// Alliant build, 2026-07-17 -- see RESOLVED.md).
 module environment 'br/public:avm/res/app/managed-environment:0.13.3' = {
   name: 'deploy-cae'
   params: {
@@ -101,8 +109,42 @@ module environment 'br/public:avm/res/app/managed-environment:0.13.3' = {
     location: location
     tags: tags
     appInsightsConnectionString: appInsightsConnectionString
+    appLogsConfiguration: empty(logAnalyticsWorkspaceResourceId) ? null : {
+      destination: 'log-analytics'
+      logAnalyticsWorkspaceResourceId: logAnalyticsWorkspaceResourceId
+    }
     zoneRedundant: false
     publicNetworkAccess: 'Enabled'
+  }
+}
+
+// `appLogsConfiguration` above alone is NOT sufficient for
+// `ContainerAppConsoleLogs` to actually appear in Log Analytics -- Azure
+// Monitor diagnostic settings must ALSO be created against the
+// environment resource itself. Confirmed missing on the Alliant build,
+// 2026-07-17: `az monitor diagnostic-settings list --resource <cae-id>`
+// returned `[]` even with appLogsConfiguration.destination set correctly.
+// Diagnostic settings for log categories can only be created at the
+// ENVIRONMENT level -- the container-app-level diagnostic-settings API
+// only accepts a metrics category (`AllMetrics`), it rejects
+// `ContainerAppConsoleLogs`/`ContainerAppSystemLogs` with a 400. See
+// RESOLVED.md.
+resource caeExisting 'Microsoft.App/managedEnvironments@2025-01-01' existing = if (!empty(logAnalyticsWorkspaceResourceId)) {
+  name: '${resourcePrefix}-cae'
+  dependsOn: [
+    environment
+  ]
+}
+
+resource caeDiagnostics 'Microsoft.Insights/diagnosticSettings@2021-05-01-preview' = if (!empty(logAnalyticsWorkspaceResourceId)) {
+  name: 'cae-console-logs'
+  scope: caeExisting
+  properties: {
+    workspaceId: logAnalyticsWorkspaceResourceId
+    logs: [
+      { category: 'ContainerAppConsoleLogs', enabled: true }
+      { category: 'ContainerAppSystemLogs', enabled: true }
+    ]
   }
 }
 

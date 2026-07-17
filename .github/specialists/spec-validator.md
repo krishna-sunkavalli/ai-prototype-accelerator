@@ -121,9 +121,7 @@ Derive all resource names from spec.yaml. Never hard-code values.
   ],
   "documents": ["<spec.yaml documents[].title>"],
   "foundryIq": {
-    "indexName": "<spec.yaml foundry_iq.index_name>",
-    "chunkSize": "<spec.yaml foundry_iq.chunking.chunk_size>",
-    "overlap": "<spec.yaml foundry_iq.chunking.overlap>"
+    "indexName": "<spec.yaml foundry_iq.index_name>"
   },
   "mockApiEnabled": "<spec.yaml mock_api.enabled | false>"
 }

@@ -1557,11 +1557,12 @@ function renderStructuredJSON(obj) {
   var container = document.createElement('div');
   container.style.cssText = 'display:flex;flex-direction:column;gap:10px;font-size:13px;color:var(--gray-700);';
 
-  // Summary — inline markdown only (code/bold/italic), no block elements
+  // Summary — block-aware markdown (renders lists as real <ol>/<ul>, plus
+  // inline code/bold/italic)
   if (obj.summary) {
-    var p = document.createElement('p');
-    p.style.cssText = 'font-weight:600;color:var(--gray-900);margin:0;';
-    p.innerHTML = renderInlineMd(obj.summary);
+    var p = document.createElement('div');
+    p.style.cssText = 'color:var(--gray-900);margin:0;';
+    p.innerHTML = renderSummaryMd(obj.summary, true);
     container.appendChild(p);
   }
 
@@ -1643,7 +1644,7 @@ function renderStructuredJSON(obj) {
   if (obj.recommended_action) {
     var box = document.createElement('div');
     box.style.cssText = 'border-left:3px solid var(--accent);background:var(--gray-50);border:1px solid var(--gray-200);border-left:3px solid var(--accent);border-radius:0 6px 6px 0;padding:6px 10px;font-size:12px;color:var(--gray-700);';
-    box.innerHTML = '<strong>Recommended action:</strong> ' + renderInlineMd(obj.recommended_action);
+    box.innerHTML = '<strong>Recommended action:</strong> ' + renderSummaryMd(obj.recommended_action);
     container.appendChild(box);
   }
 
@@ -1658,14 +1659,72 @@ function renderStructuredJSON(obj) {
   return container;
 }
 
-/* Inline-only markdown (code, bold, italic) for structured-card strings —
-   agents write things like `vendor_pricing` in summaries. */
+/* Inline-only markdown (code, bold, italic) — used for individual lines/
+   list items produced by renderSummaryMd, and for short fields like
+   recommended_action. */
 function renderInlineMd(text) {
   var s = escHtml(String(text));
   s = s.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
   s = s.replace(/`([^`]+)`/g, '<code>$1</code>');
   s = s.replace(/\*(.+?)\*/g, '<em>$1</em>');
   return s;
+}
+
+/* Block-aware markdown for structured-card summary strings. Agents are
+   instructed to write bulleted/numbered lists, but two things routinely
+   defeat plain renderInlineMd(): (1) the model sometimes runs every list
+   item together on a single line ("1. **A**: foo 2. **B**: bar") instead
+   of one item per line, and (2) even when it does put each item on its
+   own line, a single <p> collapses those newlines visually since HTML
+   ignores raw \n without <br>/list markup. This function splits run-on
+   numbered/bulleted items onto their own line first, then renders any
+   list block as a real <ol>/<ul> so lists always look like lists. */
+function renderSummaryMd(text, boldProse) {
+  var raw = String(text);
+  var proseStyle = boldProse ? 'font-weight:600;margin:0 0 4px 0;' : 'margin:0 0 4px 0;';
+
+  // Split "1. **A**: foo 2. **B**: bar" into separate lines before each
+  // numbered marker when the model ran the whole list together.
+  raw = raw.replace(/\s*(?=\d+\.\s+(?:\*\*|[A-Z]))/g, '\n');
+  // Same idea for run-on bullet markers ("- **A**: foo - **B**: bar").
+  raw = raw.replace(/\s+(?=[-*]\s+\*\*)/g, '\n');
+
+  var lines = raw.split(/\n+/).map(function (l) { return l.trim(); }).filter(Boolean);
+  var numberedRe = /^\d+\.\s+(.*)$/;
+  var bulletRe = /^[-*]\s+(.*)$/;
+
+  var html = '';
+  var listItems = [];
+  var listType = null; // 'ol' | 'ul'
+
+  function flushList() {
+    if (!listItems.length) return;
+    html += '<' + listType + ' style="margin:4px 0 4px 18px;padding:0;">'
+      + listItems.map(function (li) { return '<li style="margin:2px 0;">' + renderInlineMd(li) + '</li>'; }).join('')
+      + '</' + listType + '>';
+    listItems = [];
+    listType = null;
+  }
+
+  lines.forEach(function (line) {
+    var m = numberedRe.exec(line);
+    var b = !m && bulletRe.exec(line);
+    if (m) {
+      if (listType && listType !== 'ol') flushList();
+      listType = 'ol';
+      listItems.push(m[1]);
+    } else if (b) {
+      if (listType && listType !== 'ul') flushList();
+      listType = 'ul';
+      listItems.push(b[1]);
+    } else {
+      flushList();
+      html += '<p style="' + proseStyle + '">' + renderInlineMd(line) + '</p>';
+    }
+  });
+  flushList();
+
+  return html || '<p style="' + proseStyle + '">' + renderInlineMd(text) + '</p>';
 }
 
 function appendToolActivity(label) {

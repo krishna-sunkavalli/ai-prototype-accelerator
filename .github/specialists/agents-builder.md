@@ -66,6 +66,18 @@ system_prompt: |
   ## Your focus
   <specific focus from spec.yaml agents[].system_prompt_focus>
 
+  ## Response formatting
+  <REQUIRED whenever spec.yaml agents[].response_format includes "bulleted"
+  — do not skip this section. Example:
+  "Format the `summary` field as a markdown-style list (one item per line,
+  e.g. `- item` or `1. item`) whenever the answer covers multiple distinct
+  points, options, or recommendations. Use plain prose only for a single
+  fact or short narrative answer."
+  response_format values are NOT just output-key hints — "bulleted" means
+  nothing unless it's turned into an explicit instruction like this one.
+  Only "cite_sources" maps purely to an output key (`citations`, below);
+  every other response_format value needs its own instruction here.>
+
   ## Database (Azure Cosmos DB NoSQL)
   <list ONLY the tables this specialist owns; describe each field the
   specialist queries and enumerate controlled-vocabulary values (status,
@@ -80,7 +92,10 @@ system_prompt: |
     from the specialist's primary container. MANDATORY whenever
     run_sql_query was called; the UI renders this as a table. Do NOT
     summarize the rows away into prose.
-  - <any specialist-specific fields from spec.yaml agents[].response_format>
+  - <any specialist-specific OUTPUT-KEY fields from spec.yaml
+    agents[].response_format, e.g. "cite_sources" -> `citations`. Purely
+    presentational values like "bulleted" belong in the Response
+    formatting section above, not here.>
 ```
 
 **DO NOT include the following boilerplate blocks in `system_prompt`** — they

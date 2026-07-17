@@ -1,0 +1,34 @@
+# ai-prototype-accelerator — Docker build context excludes
+# Static scaffold file — do NOT modify when processing spec.yaml.
+#
+# Only backend/, agents/, frontend/, db/ (and backend/requirements.txt) are
+# ever COPY'd into the image -- see Dockerfile. Without this file, `azd
+# deploy`'s remote-build packaging step tars up the ENTIRE project
+# directory as the build context, including azd's own .azure/ state,
+# generated Bicep JSON under infra/ (can be 1MB+), and any stray debug
+# files -- none of which the image needs. Keeps the build context small
+# and avoids "archive/tar: write too long" packaging failures caused by
+# unrelated files changing size while other tooling (preflight.py, test
+# runs, etc.) is active in this directory (Alliant build, 2026-07-17).
+
+.azure/
+.git/
+.github/
+infra/
+hooks/
+azure.yaml
+azure.yaml.tpl
+.env.sample
+
+# Root-level loose debug/log artifacts only (anchored with a leading `/`
+# so files actually needed deeper in backend/agents/frontend/db, if any
+# share these extensions, are NOT excluded).
+/*.txt
+/*.json
+/*.md
+
+__pycache__/
+**/__pycache__/
+*.pyc
+.pytest_cache/
+.venv/

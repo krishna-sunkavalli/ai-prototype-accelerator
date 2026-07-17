@@ -382,6 +382,35 @@ def build_substitutions(manifest: dict) -> dict[str, str]:  # noqa: C901
         bash_array = "()"
         ps_array = "@()"
 
+    # -- Knowledge base retrieval instructions -------------------------------
+    # Steers Foundry IQ's subquery planning toward the document whose topics
+    # best match the question -- built from documentSpecs (title + key_topics)
+    # so it stays in sync with spec.yaml without a new manifest field.
+    # Sanitized (quotes/backticks/newlines stripped) for safe embedding inside
+    # a raw double-quoted string literal in both postprovision.ps1 and
+    # postprovision.sh -- same lightweight convention already used for
+    # {{CUSTOMER_NAME}} in this template (admin-authored spec.yaml content,
+    # not untrusted input).
+    doc_specs: list[dict] = manifest.get("documentSpecs", []) or []
+    kb_hints: list[str] = []
+    for doc_spec in doc_specs:
+        title = ascii_safe(str(doc_spec.get("title", ""))).strip()
+        if not title:
+            continue
+        topics = doc_spec.get("key_topics") or []
+        topics_str = ", ".join(ascii_safe(str(t)) for t in topics[:4])
+        kb_hints.append(f"{title} ({topics_str})" if topics_str else title)
+    if kb_hints:
+        kb_retrieval_instructions = (
+            "Prioritize the document whose topics best match the user's question: "
+            + "; ".join(kb_hints) + "."
+        )
+    else:
+        kb_retrieval_instructions = ""
+    kb_retrieval_instructions = (
+        kb_retrieval_instructions.replace('"', "'").replace("`", "'").replace("\n", " ")
+    )
+
     ai_region = manifest.get("aiLocation", "eastus")
 
     # -- Docker build args (azure.yaml) ---------------------------------------
@@ -469,6 +498,7 @@ def build_substitutions(manifest: dict) -> dict[str, str]:  # noqa: C901
         "{{SCENARIOS_PYTHON}}": scenarios_python,
         "{{DOCS_BASH_ARRAY}}": bash_array,
         "{{DOCS_PS_ARRAY}}": ps_array,
+        "{{KB_RETRIEVAL_INSTRUCTIONS}}": kb_retrieval_instructions,
         "{{USE_CASE_TITLE}}": use_case_title,
         "{{CUSTOMER_NAME_PY}}": escape_python_string(customer_name),
         "{{CUSTOMER_NAME_BICEP}}": escape_bicep_string(customer_name),

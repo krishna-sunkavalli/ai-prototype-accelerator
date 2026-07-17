@@ -1,184 +1,134 @@
 customer:
-  name: Hudson Advisors
-  slug: hudson
-  industry: Real Estate & Alternative Asset Management
-  website: https://www.hudson-advisors.com/
+  name: Alliant
+  slug: alliant
+  industry: Insurance brokerage and risk management
+  website: https://alliant.com/
 
 branding:
-  agent_name: HudsonUnderwriter
+  agent_name: AlliantRiskIQ
   primary_color: "#0B2340"
-  accent_color: "#C9A24B"
+  accent_color: "#2563EB"
   font_family: "Segoe UI, system-ui, sans-serif"
   logo_url: ""
-  welcome_message: "Welcome. Ask me about deals, comps, cap rates, or diligence status."
+  welcome_message: "Hi, I'm here to help you assess risk, review coverage, and stay ahead of loss exposures."
 
 use_case:
-  title: CRE Underwriting & Diligence Copilot
+  title: Risk Management Advisor
   description: >
-    A branded chat assistant for Hudson Advisors acquisition analysts working commercial real estate
-    deals. Analysts ask about comps, cap rates, tenant rolls, and diligence checklists and get
-    structured underwriting summaries with citations, so they can build IC memos faster and surface
-    red flags earlier in the deal cycle.
+    Alliant risk managers and account teams need fast, reliable answers about client risk profiles,
+    loss control recommendations, and program performance. This assistant lets them ask
+    natural-language questions and get instant, cited guidance to support renewal strategy and
+    loss prevention.
 
 deployment:
-  environment_name: hudson-advisors-prototype
-  resource_group: rg-hudson-advisors-prototype
+  environment_name: alliant-prototype
+  resource_group: rg-alliant-prototype
   azure_region: eastus2
-  database_name: hudson-advisors-db
+  database_name: alliant-db
 
 agents:
-  - name: UnderwritingAgent
-    role: Lead deal analyst for CRE acquisitions
+  - name: RiskAssessmentAgent
+    role: Analyzes client risk profiles and loss exposure trends
     model: gpt-4o
-    routing_keywords: [deal, underwriting, cap, noi, valuation, irr, memo]
+    routing_keywords: [risk, exposure, assessment]
     tools: [search_tool, sql_tool]
     skills:
-      - name: deal_summary
-        description: Summarize a target deal's key underwriting metrics and assumptions.
-      - name: return_analysis
-        description: Explain expected returns, cap rate, and sensitivity for a deal.
+      - name: risk_scoring
+        description: Score and summarize client risk profiles.
     system_prompt_focus: >
-      You lead CRE deal analysis for Hudson Advisors. Pull deal metrics from the deals table, cite
-      supporting comps, and produce concise, IC-ready underwriting summaries. Always call out
-      assumptions and open risks.
+      Help risk managers understand a client's current risk profile, exposure trends, and how it
+      compares to industry benchmarks, citing source documents and data where relevant.
     response_format: [bulleted, cite_sources]
 
-  - name: DiligenceAgent
-    role: Diligence coordinator tracking checklist status and red flags
+  - name: LossControlAgent
+    role: Recommends loss control and mitigation strategies
     model: gpt-4o-mini
-    routing_keywords: [diligence, checklist, redflag, status, open, item, review]
-    tools: [search_tool, sql_tool]
+    routing_keywords: [loss control, mitigation, safety]
+    tools: [search_tool]
     skills:
-      - name: checklist_status
-        description: Report diligence checklist completion status for a given deal.
-      - name: red_flag_scan
-        description: Surface open red flags and outstanding diligence items across deals.
+      - name: loss_control_guidance
+        description: Suggest loss prevention and mitigation actions.
     system_prompt_focus: >
-      You coordinate diligence for Hudson Advisors CRE deals. Query the diligence_items table for
-      status, highlight overdue or blocking items, and reference the diligence playbook documents
-      when explaining standards.
+      Provide practical, prioritized loss control recommendations based on the client's risk
+      profile and known industry best practices.
     response_format: [bulleted, cite_sources]
 
-  - name: MarketDataAgent
-    role: Market comps and tenant credit specialist
-    model: gpt-4o-mini
-    routing_keywords: [comp, comps, market, rent, tenant, lease, submarket, benchmark]
+  - name: PolicyProgramAgent
+    role: Explains coverage programs, policy structures, and limits
+    model: gpt-4o
+    routing_keywords: [policy, coverage, program]
     tools: [search_tool, sql_tool]
     skills:
-      - name: comp_lookup
-        description: Return comparable sales for a property type and submarket.
-      - name: tenant_profile
-        description: Summarize tenant credit and lease terms for a property.
+      - name: coverage_lookup
+        description: Explain policy coverage, limits, and exclusions.
     system_prompt_focus: >
-      You provide market context for Hudson Advisors underwriting. Query comparable_sales and
-      tenants tables, compute simple averages when asked, and cite the market reports knowledge
-      base for regional benchmarks.
+      Answer questions about coverage programs, limits, exclusions, and structure clearly, citing
+      the relevant policy documents.
     response_format: [bulleted, cite_sources]
 
 tables:
-  - name: deals
-    partition_key: /dealId
-    seed_count: 200
-    seed_scenario: Active and historical Hudson Advisors CRE acquisition candidates across office, industrial, multifamily, and retail in major US metros.
-    description: Master record of CRE deals under evaluation or closed.
+  - name: clients
+    partition_key: /clientId
+    seed_count: 250
+    seed_scenario: Mid-to-large commercial clients across construction, real estate, healthcare, and public entity sectors.
+    description: Client accounts managed by Alliant risk advisors.
     columns:
       - { name: id, type: string }
-      - { name: dealId, type: string }
-      - { name: propertyName, type: string }
-      - { name: propertyType, type: string }
-      - { name: metro, type: string }
-      - { name: submarket, type: string }
-      - { name: askingPrice, type: number }
-      - { name: noi, type: number }
-      - { name: capRate, type: number }
-      - { name: targetIrr, type: number }
-      - { name: status, type: string }
-      - { name: leadAnalyst, type: string }
-      - { name: lastUpdated, type: date }
-
-  - name: comparable_sales
-    partition_key: /metro
-    seed_count: 400
-    seed_scenario: Recent CRE transaction comps by metro and property type with sale price, cap rate, and price per square foot.
-    description: Comparable sales used to benchmark deal pricing.
-    columns:
-      - { name: id, type: string }
-      - { name: metro, type: string }
-      - { name: submarket, type: string }
-      - { name: propertyType, type: string }
-      - { name: buildingSf, type: number }
-      - { name: salePrice, type: number }
-      - { name: pricePerSf, type: number }
-      - { name: capRate, type: number }
-      - { name: saleDate, type: date }
-      - { name: buyer, type: string }
-      - { name: seller, type: string }
-
-  - name: tenants
-    partition_key: /dealId
-    seed_count: 300
-    seed_scenario: Tenant roster and lease terms for properties in the deal pipeline, including credit tier and remaining term.
-    description: Tenant and lease detail supporting rent roll analysis.
-    columns:
-      - { name: id, type: string }
-      - { name: dealId, type: string }
-      - { name: tenantName, type: string }
+      - { name: clientId, type: string }
+      - { name: clientName, type: string }
       - { name: industry, type: string }
-      - { name: creditTier, type: string }
-      - { name: leasedSf, type: number }
-      - { name: baseRentPsf, type: number }
-      - { name: leaseStart, type: date }
-      - { name: leaseEnd, type: date }
-      - { name: renewalOption, type: boolean }
+      - { name: riskScore, type: number }
+      - { name: region, type: string }
 
-  - name: diligence_items
-    partition_key: /dealId
+  - name: risk_assessments
+    partition_key: /clientId
     seed_count: 300
-    seed_scenario: Diligence checklist items per deal covering legal, environmental, title, financial, and physical inspections with owner and status.
-    description: Diligence checklist tracking for each active deal.
+    seed_scenario: Periodic risk assessments tied to client accounts with severity and category.
+    description: Risk assessment records for client accounts.
     columns:
       - { name: id, type: string }
-      - { name: dealId, type: string }
-      - { name: category, type: string }
-      - { name: itemName, type: string }
-      - { name: owner, type: string }
+      - { name: clientId, type: string }
+      - { name: assessmentDate, type: date }
+      - { name: riskCategory, type: string }
+      - { name: severity, type: string }
+
+  - name: loss_control_recommendations
+    partition_key: /clientId
+    seed_count: 200
+    seed_scenario: Open and closed loss control recommendations with due dates and status.
+    description: Loss control and mitigation recommendations per client.
+    columns:
+      - { name: id, type: string }
+      - { name: clientId, type: string }
+      - { name: recommendationType, type: string }
       - { name: status, type: string }
       - { name: dueDate, type: date }
-      - { name: isRedFlag, type: boolean }
-      - { name: notes, type: string }
 
 documents:
-  - title: CRE Underwriting Playbook
-    description: Hudson Advisors standards for underwriting assumptions, cap rate ranges, and stress tests.
-    key_topics: [cap rate, underwriting assumptions, stress test, exit strategy]
+  - title: Risk Management Playbook
+    description: Best practices for loss control and risk mitigation across industries.
+    key_topics: [loss control, safety programs, risk mitigation]
 
-  - title: Diligence Checklist Standards
-    description: Required diligence categories and completion criteria across legal, financial, physical, and environmental workstreams.
-    key_topics: [legal diligence, environmental, title review, financial audit]
+  - title: Property and Casualty Coverage Guide
+    description: Explains standard coverage structures, limits, and exclusions.
+    key_topics: [coverage limits, exclusions, endorsements]
 
-  - title: US CRE Market Reports
-    description: Quarterly market context by metro and property type covering rents, vacancy, and cap rate trends.
-    key_topics: [market rents, vacancy, submarket trends, cap rate benchmarks]
-
-  - title: Investment Committee Memo Template
-    description: Standard structure for IC memos including deal thesis, risks, returns, and recommendation.
-    key_topics: [IC memo, deal thesis, risk factors, recommendation]
+  - title: Industry Risk Benchmarks
+    description: Benchmarking data and claims trends by industry.
+    key_topics: [benchmarking, industry risk, claims trends]
 
 starter_questions:
-  - Show comps for a Class A office in Dallas
-  - What is the cap rate range for industrial in Phoenix?
-  - Summarize diligence status for deal HA-1042
-  - Which deals have open red flags this week?
+  - What is the risk score for our top client?
+  - What loss control recommendations are overdue?
+  - Summarize coverage gaps for a client.
+  - Show recent risk assessment trends.
 
 demo_persona:
-  name: Morgan Chen
-  role: Senior Acquisitions Analyst
+  name: Jordan Lee
+  role: Senior Risk Manager
 
 foundry_iq:
-  index_name: hudson-advisors-knowledge
-  chunking:
-    chunk_size: 1024
-    overlap: 128
+  index_name: alliant-knowledge
 
 model_deployments:
   - deployment_name: gpt-4o

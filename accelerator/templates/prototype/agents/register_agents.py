@@ -12,8 +12,20 @@ Without tool declarations on the registered agent, the model has no idea
 the functions exist and will hallucinate calls in plain markdown instead of
 invoking them.
 
+Knowledge base retrieval ("search_knowledge_base" in agent.yaml) is NOT a
+FunctionTool -- it's a native MCP tool (knowledge_base_retrieve) pointed at
+the Foundry IQ knowledge base via the RemoteTool/ProjectManagedIdentity
+connection created by infra/modules/foundry-search-connection.bicep. Foundry's
+Responses API executes it server-side; there is no local Python callable.
+See https://learn.microsoft.com/azure/foundry/agents/how-to/foundry-iq-connect
+and RESOLVED.md for the migration from the old FunctionTool-based
+search_tool.py.
+
 Required environment variables:
     AZURE_AI_PROJECT_ENDPOINT  e.g. https://<hub>.services.ai.azure.com/api/projects/<project>/
+    AZURE_SEARCH_ENDPOINT     e.g. https://<search-service>.search.windows.net
+    AZURE_SEARCH_INDEX        e.g. <customer>-knowledge (knowledge base name is `<this>-kb`,
+                              connection name is `<this>-mcp`)
     AZURE_CLIENT_ID            optional, for managed identity
 """
 
@@ -31,7 +43,7 @@ if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
 
 from azure.ai.projects import AIProjectClient
-from azure.ai.projects.models import FunctionTool, PromptAgentDefinition
+from azure.ai.projects.models import FunctionTool, MCPTool, PromptAgentDefinition
 from azure.identity import AzureCliCredential, DefaultAzureCredential
 
 
@@ -102,6 +114,35 @@ def _load_agent_yaml(path: str) -> dict:
         return yaml.safe_load(f)
 
 
+# ── Foundry IQ MCP tool (knowledge_base_retrieve) ──────────────────────────────
+# "search_knowledge_base" in agent.yaml maps to this, not a FunctionTool.
+# The knowledge base name (`<index>-kb`) and the project connection name
+# (`<index>-mcp`) both follow the naming convention fixed by
+# infra/modules/foundry-search-connection.bicep. Built once and reused across
+# every agent that declares it -- one MCPTool instance per registration call
+# is fine since Tool objects are just serialised into the request body.
+_MCP_TOOL_NAME = "search_knowledge_base"
+_KNOWLEDGE_BASE_API_VERSION = "2026-05-01-preview"
+
+
+def _knowledge_base_mcp_tool() -> MCPTool:
+    search_endpoint = os.environ["AZURE_SEARCH_ENDPOINT"].rstrip("/")
+    search_index = os.environ["AZURE_SEARCH_INDEX"]
+    knowledge_base_name = f"{search_index}-kb"
+    connection_name = f"{search_index}-mcp"
+    mcp_endpoint = (
+        f"{search_endpoint}/knowledgebases/{knowledge_base_name}/mcp"
+        f"?api-version={_KNOWLEDGE_BASE_API_VERSION}"
+    )
+    return MCPTool(
+        server_label="knowledge-base",
+        server_url=mcp_endpoint,
+        require_approval="never",
+        allowed_tools=["knowledge_base_retrieve"],
+        project_connection_id=connection_name,
+    )
+
+
 # Shared specialist preamble — Cosmos SQL rules, tool signatures, JSON
 # response contract. Prepended to every agent that declares tools, so the
 # per-agent system_prompt in agent.yaml can focus on domain content instead
@@ -142,23 +183,27 @@ def _instructions_from_config(config: dict) -> str:
     return f"{preamble}\n\n---\n\n{specialist_prompt}"
 
 
-def _tools_from_config(config: dict) -> list[FunctionTool]:
-    """Return FunctionTool definitions for the tools declared in agent.yaml.
+def _tools_from_config(config: dict) -> list:
+    """Return Tool definitions for the tools declared in agent.yaml.
 
-    Any tool referenced by agent.yaml that is not present in
-    tool_definitions.yaml is a configuration error — fail fast so we don't
-    silently register an agent that thinks it has tools the runtime can't
-    invoke.
+    "search_knowledge_base" resolves to the native Foundry IQ MCP tool
+    (see _knowledge_base_mcp_tool). Every other name must be present in
+    tool_definitions.yaml as a FunctionTool — any tool referenced by
+    agent.yaml that isn't found in either place is a configuration error —
+    fail fast so we don't silently register an agent that thinks it has
+    tools the runtime can't invoke.
     """
-    tools: list[FunctionTool] = []
+    tools: list = []
     unknown: list[str] = []
     for tool_name in config.get("tools", []):
-        if tool_name in _TOOL_CATALOGUE:
+        if tool_name == _MCP_TOOL_NAME:
+            tools.append(_knowledge_base_mcp_tool())
+        elif tool_name in _TOOL_CATALOGUE:
             tools.append(_TOOL_CATALOGUE[tool_name])
         else:
             unknown.append(tool_name)
     if unknown:
-        known = sorted(_TOOL_CATALOGUE.keys())
+        known = sorted(_TOOL_CATALOGUE.keys()) + [_MCP_TOOL_NAME]
         raise RuntimeError(
             f"Agent '{config.get('name')}' declares unknown tools {unknown}. "
             f"Add them to agents/tools/tool_definitions.yaml. Known tools: {known}"
@@ -171,7 +216,7 @@ def register_agent(
     name: str,
     model: str,
     instructions: str,
-    tools: list[FunctionTool],
+    tools: list,
     max_retries: int = 5,
 ) -> None:
     kwargs: dict = {"kind": "prompt", "model": model, "instructions": instructions}
@@ -185,7 +230,8 @@ def register_agent(
                 agent_name=name,
                 definition=definition,
             )
-            tool_names = [t.name for t in tools]
+            # FunctionTool exposes .name; MCPTool exposes .server_label instead.
+            tool_names = [getattr(t, "name", None) or getattr(t, "server_label", t.type) for t in tools]
             print(
                 f"  REGISTERED  {name}  "
                 f"(version {getattr(version, 'version', '?')}, tools={tool_names})"
@@ -216,7 +262,7 @@ def main() -> None:
     os.chdir(project_root)
 
     pattern = str(Path("agents") / "specialists" / "*" / "agent.yaml")
-    agents_to_register: list[tuple[str, str, str, list[FunctionTool]]] = []
+    agents_to_register: list[tuple[str, str, str, list]] = []
 
     for yaml_path in sorted(glob.glob(pattern)):
         config = _load_agent_yaml(yaml_path)

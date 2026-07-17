@@ -14,6 +14,13 @@
 #
 # register_agents.py reads this file at runtime; no code changes are needed
 # to surface a new tool to a registered agent.
+#
+# NOTE: "search_knowledge_base" is NOT defined here. It is special-cased in
+# register_agents.py as a native MCP tool (knowledge_base_retrieve) against
+# the Foundry IQ knowledge base connection created by
+# infra/modules/foundry-search-connection.bicep -- not a FunctionTool, and
+# not backed by a local Python callable. See RESOLVED.md for the migration
+# from the old FunctionTool-based search_tool.py.
 
 - name: run_sql_query
   description: >
@@ -27,8 +34,11 @@
       query:
         type: string
         description: >
-          Cosmos SQL. May use the container name or alias 'c' in the FROM
-          clause (e.g. "SELECT * FROM service_work_orders WHERE c.status = 'open'").
+          Cosmos SQL. Always alias the container as 'c' in the FROM clause
+          (e.g. "SELECT c.status FROM c WHERE c.status = 'open'") and pass
+          the real container name separately via the `container` parameter
+          below -- do NOT rely on this tool to guess the container from the
+          FROM clause text.
       params:
         type: array
         description: 'Optional list of named parameters: [{"name": "@x", "value": ...}]'
@@ -40,22 +50,12 @@
           required: [name, value]
       container:
         type: string
-        description: Optional container name override. Inferred from FROM clause if omitted.
-    required: [query]
-
-- name: search_knowledge_base
-  description: >
-    Search the operational knowledge base (policies, SOPs, customer
-    agreements) indexed in Azure AI Search. Use for narrative / policy
-    lookups, not for structured data — use run_sql_query for live records.
-  strict: false
-  parameters:
-    type: object
-    properties:
-      query:
-        type: string
-        description: Natural-language search query.
-    required: [query]
+        description: >
+          REQUIRED. The exact container name to query (e.g. "clients",
+          "risk_assessments"). Must always be supplied -- the query's FROM
+          clause should use the alias 'c', not the container name, so this
+          is the only reliable way the tool knows which container to hit.
+    required: [query, container]
 
 - name: call_mock_api
   description: >
