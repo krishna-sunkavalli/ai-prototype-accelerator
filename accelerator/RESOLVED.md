@@ -1623,3 +1623,89 @@ console log visibility is ever needed.
   what's already been ruled out" — the prior session's conclusion (workspace
   ingestion outage) was wrong, and starting fresh (a clean venv install of
   the actual pinned requirements) is what surfaced the real bug.
+
+## 41. The final piece: `ContainerAppConsoleLogs` was empty because two mutually exclusive log-routing mechanisms were mixed (PR #24, external review)
+
+**Context:** direct follow-up to #40. With #40's fix confirmed, App Insights
+telemetry (`AppRequests`/`AppTraces`/`AppGenAIContent`) was flowing
+correctly — proving the Log Analytics workspace itself ingests fine and
+retiring #39's "workspace-wide outage" theory for good. That left the
+`ContainerAppConsoleLogs`/`ContainerAppSystemLogs` gap as a narrower,
+config-specific question rather than an infrastructure-wide one.
+
+**The real bug:** `container-app.bicep` mixed two mutually exclusive
+Container Apps log-routing mechanisms:
+- `appLogsConfiguration.destination: 'log-analytics'` (what the template
+  had) makes the platform write console/system logs *directly* to
+  **custom** tables (`ContainerAppConsoleLogs_CL` /
+  `ContainerAppSystemLogs_CL`). In this mode, diagnostic settings on the
+  environment are **ignored entirely**.
+- The `cae-console-logs` diagnostic-settings resource (added in #38)
+  only routes the **standard** tables (`ContainerAppConsoleLogs` /
+  `ContainerAppSystemLogs`) to a workspace, and per Microsoft's own
+  Container Apps log-options doc, it only takes effect when the
+  destination is **`azure-monitor`**: *"If you selected Azure Monitor as
+  your logs destination, you must also configure the diagnostic
+  settings."*
+
+With destination `log-analytics` set, the diagnostic setting existed
+(confirmed present and correctly scoped) but never emitted anything,
+because that setting only wires up under the `azure-monitor` destination.
+Every verification check in #38/#39/#40 queried the **standard**
+`ContainerAppConsoleLogs` table — which could never populate under that
+combination. Zero rows was the expected behavior of the misconfiguration,
+not ingestion latency. This rhymes with #40's own root cause: #40 was
+classic-vs-`App*` table names; this is standard-vs-`_CL` table names —
+both pipes were being queried at addresses the live config never wrote to.
+
+**Independent verification before merging (not just trusting the PR
+description):**
+1. Confirmed live config: `az containerapp env show` on
+   `alliant-alliant-cae` showed `destination: "log-analytics"`, matching
+   the claimed misconfiguration exactly.
+2. Fetched Microsoft's own log-options doc directly and found the exact
+   sentence confirming diagnostic settings are only wired for the
+   `azure-monitor` destination.
+3. Diffed the actual bicep change: `destination: 'log-analytics'` →
+   `destination: 'azure-monitor'`, with a block comment documenting both
+   mechanisms.
+4. `az bicep build` on the new file compiled cleanly — `azure-monitor` is
+   a valid discriminated-union value in AVM's `managed-environment`
+   0.13.3.
+5. **Live-tested the actual behavior change before merging anything**:
+   ran `az containerapp env update --logs-destination azure-monitor`
+   directly against the live environment (a fast, reversible CLI-level
+   test, no bicep/provision involved yet), confirmed the config flipped,
+   restarted the active revision so a fresh replica picked up the new
+   log-routing destination (the existing replica appeared to keep
+   whatever routing was active at its own startup), generated fresh
+   traffic via `verify-prototype.py` (4/4 PASS), then queried
+   `ContainerAppConsoleLogs` and found **34 real rows** — genuine uvicorn
+   access logs (`GET /health HTTP/1.1" 200 OK`, `WebSocket /chat
+   [accepted]`, `connection open`/`connection closed`) with timestamps
+   matching the test traffic exactly.
+
+**Fix merged:** PR #24 (squash-merged `c74fa833`), synced into
+`generated/prototype/`, 72/72 tests pass. Live environment already
+reflects the fix (applied via the CLI test above, itself the destination
+value the merged bicep now declares) — a future `azd provision` will
+simply confirm this state rather than change it.
+
+**Note on restart behavior:** immediately after `az containerapp revision
+restart`, a health check briefly timed out (cold start from `minReplicas:
+0` scaling back up) — recovered on the next request with a longer
+timeout. Not the RESOLVED #38 placeholder-page regression (this was a
+direct CLI-level environment property update, not an `azd provision` /
+bicep deployment), just an ordinary scale-from-zero cold start. Still,
+the same lesson applies: don't trust the very first request after any
+environment/replica-affecting change; retry before concluding failure.
+
+**Lesson:** Azure Container Apps' logging model has (at least) three
+independent axes that are easy to conflate: (1) `appLogsConfiguration`'s
+`destination` value (`log-analytics` vs `azure-monitor` vs `none`), (2)
+whether a `Microsoft.Insights/diagnosticSettings` resource exists at all
+(#38), and (3) which Kusto table names the query actually needs to hit
+for the current destination (`_CL` custom tables vs. standard names).
+Getting any one of these three right while the others are wrong still
+produces zero visible rows — treat all three as one interdependent
+system, not separately-verifiable checkboxes.

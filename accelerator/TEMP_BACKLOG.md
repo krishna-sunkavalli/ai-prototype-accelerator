@@ -48,7 +48,22 @@ level change) — remember the standing rule: follow it with `azd deploy app`
 + a response-BODY health check (placeholder-page regression hit twice
 before).
 
-Two quick live checks before/without re-provisioning:
+**Status: RESOLVED 2026-07-17 — see RESOLVED.md #41.** Merged via PR #24
+(squash `c74fa833`). Verified live BEFORE merging: applied the same
+destination change directly via `az containerapp env update
+--logs-destination azure-monitor` (fast, reversible CLI test), restarted
+the active revision so a fresh replica picked up the new routing,
+generated traffic via `verify-prototype.py` (4/4 PASS), then queried the
+standard `ContainerAppConsoleLogs` table and found 34 real rows — genuine
+uvicorn access logs (`GET /health`, `WebSocket /chat [accepted]`,
+`connection open`/`closed`) with timestamps matching the test traffic.
+Both telemetry pipes (App Insights SDK telemetry from #40, and console
+logs from this fix) are now confirmed flowing. Live environment already
+reflects the fix; a future `azd provision` will just confirm the state,
+not change it.
+
+Two quick live checks before/without re-provisioning (kept for reference,
+already executed above):
 1. Query `ContainerAppConsoleLogs_CL | where TimeGenerated > ago(2h)` —
    under the OLD config, console logs (if flowing at all) land there, not
    in the standard table. Rows here confirm the whole diagnosis instantly.
