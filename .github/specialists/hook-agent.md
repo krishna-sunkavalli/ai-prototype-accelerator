@@ -30,6 +30,7 @@ Read: generated/build-state/manifest.json
 ## Outputs
 Write: generated/prototype/hooks/postprovision.sh    ← via fill-templates.py
 Write: generated/prototype/hooks/postprovision.ps1   ← via fill-templates.py
+Write: generated/prototype/hooks/data-grounding.json ← via fill-templates.py (manifest.json's `dataGrounding`, defaults to `{mode: synthetic, dataSources: []}`)
 Write: generated/build-state/07-hook-agent.done      ← via `sentinels.py write` (Step 2)
 
 ---
@@ -41,11 +42,19 @@ py -3 accelerator/generators/fill-templates.py --target hooks
 ```
 
 This reads `manifest.json` and hydrates the two hook scripts from the
-accelerator-owned `.tpl` files. **Do NOT regenerate these scripts from
-scratch.** Every L1–L20 lesson from prior prototype runs is encoded directly
-in `accelerator/templates/prototype/hooks/postprovision.{sh,ps1}.tpl`. If a
+accelerator-owned `.tpl` files, plus writes `data-grounding.json` (a plain
+JSON dump of `manifest.dataGrounding`, not a `.tpl` substitution — avoids
+embedding a JSON blob with real resource names/IDs inside a shell string
+literal). **Do NOT regenerate these scripts from scratch.** Every L1–L20
+lesson from prior prototype runs is encoded directly in
+`accelerator/templates/prototype/hooks/postprovision.{sh,ps1}.tpl`. If a
 new lesson surfaces, patch the `.tpl` — the fix then propagates to every
-future build automatically.
+future build automatically. `hooks/wire_real_data_sources.py` (a static
+template, copied verbatim by `materialize-prototype.py`, no hydration
+needed) does the actual discovery/RBAC/knowledge-source wiring for
+`dataGrounding.mode: real` at deploy time — do not edit the emitted copy
+either; patch the accelerator-owned source under
+`accelerator/templates/prototype/hooks/wire_real_data_sources.py` instead.
 
 ## Step 2 — Write the .done marker
 
@@ -57,7 +66,8 @@ py -3 accelerator/generators/sentinels.py write \
   --sentinel generated/build-state/07-hook-agent.done \
   --manifest generated/build-state/manifest.json \
   --output generated/prototype/hooks/postprovision.sh \
-  --output generated/prototype/hooks/postprovision.ps1
+  --output generated/prototype/hooks/postprovision.ps1 \
+  --output generated/prototype/hooks/data-grounding.json
 ```
 
 Never write the sentinel as a plain timestamp.

@@ -527,6 +527,25 @@ def build_substitutions(manifest: dict) -> dict[str, str]:  # noqa: C901
     }
 
 
+DATA_GROUNDING_OUTPUT = OUTPUT_ROOT / "hooks" / "data-grounding.json"
+
+
+def write_data_grounding_json(manifest: dict) -> pathlib.Path:
+    """Write generated/prototype/hooks/data-grounding.json from manifest.dataGrounding.
+
+    A plain JSON dump, not a `.tpl` substitution -- embedding a JSON blob
+    (customer-provided data source names, ARM resource IDs) inside a shell
+    string literal in postprovision.sh/.ps1 would require fragile quote
+    escaping. Reading a real file at runtime avoids that entirely. Defaults
+    to synthetic/empty for manifests written before this feature existed.
+    """
+    grounding = manifest.get("dataGrounding") or {"mode": "synthetic", "dataSources": []}
+    DATA_GROUNDING_OUTPUT.parent.mkdir(parents=True, exist_ok=True)
+    DATA_GROUNDING_OUTPUT.write_text(json.dumps(grounding, indent=2), encoding="utf-8")
+    print(f"  OK : {DATA_GROUNDING_OUTPUT.relative_to(WORKSPACE_ROOT)}")
+    return DATA_GROUNDING_OUTPUT
+
+
 def fill_template(
     template_path: pathlib.Path,
     output_path: pathlib.Path,
@@ -592,6 +611,9 @@ def main() -> None:
             print(f"  SKIP : {template_path.name} (template not found)")
             continue
         ok = fill_template(template_path, output_path, substitutions) and ok
+
+    if args.target in ("all", "hooks"):
+        write_data_grounding_json(manifest)
 
     print()
     if ok:

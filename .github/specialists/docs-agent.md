@@ -17,6 +17,20 @@ Read spec.yaml documents[] section for titles and key_topics.
 If manifest.json missing, stop.
 Record the step clock: `py -3 accelerator/scripts/build-metrics.py step-start 05-docs-agent`.
 
+**Check `manifest.dataGrounding.mode` first.** When it is `"real"` (the
+customer chose to ground Foundry IQ in their own Azure Blob/SQL resources
+instead of synthetic documents), **do not generate any documents**. Write
+zero files to `generated/prototype/agents/knowledge/`, still write the
+`.done` sentinel (the build graph must not stall), and print:
+```
+[Step 5/7] Skipped synthetic document generation (dataGrounding.mode = real).
+  Knowledge base will be grounded in <N> real data source(s) instead — wired
+  in during postprovision (hook-agent step 7 / 10).
+```
+When `mode` is `"synthetic"` or the `dataGrounding` key is absent (specs
+written before this feature existed), proceed with the rest of this
+specialist exactly as documented below.
+
 ## Inputs
 Read: generated/build-state/manifest.json
 Read: spec.yaml (documents[] section only)

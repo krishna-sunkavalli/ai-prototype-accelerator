@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import json
 import pathlib
+import re
 from typing import Any
 
 
@@ -84,8 +85,23 @@ SCHEMA: list[tuple[str, type | tuple[type, ...], bool]] = [
     ("foundryIq", dict, True),
     ("foundryIq.indexName", str, True),
 
+    ("dataGrounding", dict, False),
+    ("dataGrounding.mode", str, False),
+    ("dataGrounding.dataSources", list, False),
+    ("dataGrounding.dataSources[].name", str, True),
+    ("dataGrounding.dataSources[].kind", str, True),
+    ("dataGrounding.dataSources[].resourceId", str, True),
+
     ("aiLocation", str, True),
 ]
+
+# Knowledge source kinds a data_grounding.data_sources[] entry may declare.
+# Deliberately narrow: these are the only kinds Foundry IQ (Azure AI Search
+# knowledge sources) supports that this accelerator wires in. Container/
+# table discovery happens at deploy time (wire_real_data_sources.py), not
+# from spec.yaml, so no per-kind extra manifest fields are needed here.
+DATA_GROUNDING_KINDS: tuple[str, ...] = ("azure_blob", "azure_sql")
+DATA_GROUNDING_MODES: tuple[str, ...] = ("synthetic", "real")
 
 
 def _get(obj: Any, dotted: str) -> tuple[bool, Any]:
@@ -119,12 +135,16 @@ def validate(manifest: dict) -> list[str]:
 
     for path, expected_type, required in SCHEMA:
         if "[]" in path:
-            # Validate every item in the parent list.
+            # Validate every item in the parent list. Whether the parent list
+            # itself must exist is governed by that list's OWN entry earlier
+            # in SCHEMA (e.g. ("dataGrounding.dataSources", list, False)) --
+            # not by this item-field's `required` flag, which only means
+            # "when an item exists, this field must be present on it". A
+            # missing optional parent list is not an error here; it's simply
+            # nothing to validate.
             head, _, tail = path.partition("[].")
             found, parent = _get(manifest, head + "[]")
             if not found:
-                if required:
-                    errors.append(f"missing required path: {head}")
                 continue
             for i, item in enumerate(parent):
                 ok, value = _get(item, tail)
@@ -161,6 +181,38 @@ def validate(manifest: dict) -> list[str]:
             errors.append(
                 f"agents[{i}] '{a.get('name')}': model "
                 f"'{a.get('model')}' not in modelDeployments"
+            )
+
+    # Cross-field rule: dataGrounding.mode must be a known value, and when
+    # 'real', at least one dataSources[] entry is required and each entry's
+    # kind must be one Foundry IQ actually supports, with a well-formed ARM
+    # resourceId (resolved via `az resource list`, never hand-typed).
+    grounding = manifest.get("dataGrounding") or {}
+    mode = grounding.get("mode", "synthetic")
+    if mode not in DATA_GROUNDING_MODES:
+        errors.append(f"dataGrounding.mode must be one of {list(DATA_GROUNDING_MODES)}: {mode!r}")
+    data_sources = grounding.get("dataSources") or []
+    if mode == "real" and not data_sources:
+        errors.append("dataGrounding.mode is 'real' but dataSources is empty")
+    resource_id_re = re.compile(r"^/subscriptions/[^/]+/resourceGroups/[^/]+/providers/.+")
+    seen_names: set[str] = set()
+    for i, ds in enumerate(data_sources):
+        name = ds.get("name")
+        if name in seen_names:
+            errors.append(f"dataGrounding.dataSources[{i}]: duplicate name '{name}'")
+        elif name:
+            seen_names.add(name)
+        kind = ds.get("kind")
+        if kind not in DATA_GROUNDING_KINDS:
+            errors.append(
+                f"dataGrounding.dataSources[{i}] '{name}': kind '{kind}' not one of "
+                f"{list(DATA_GROUNDING_KINDS)}"
+            )
+        resource_id = ds.get("resourceId", "")
+        if not resource_id_re.match(resource_id):
+            errors.append(
+                f"dataGrounding.dataSources[{i}] '{name}': resourceId is not a well-formed "
+                f"ARM resource ID: {resource_id!r}"
             )
 
     return errors

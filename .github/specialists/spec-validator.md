@@ -123,6 +123,16 @@ Derive all resource names from spec.yaml. Never hard-code values.
   "foundryIq": {
     "indexName": "<spec.yaml foundry_iq.index_name>"
   },
+  "dataGrounding": {
+    "mode": "<spec.yaml data_grounding.mode | synthetic>",
+    "dataSources": [
+      {
+        "name": "<spec.yaml data_grounding.data_sources[].name>",
+        "kind": "<azure_blob | azure_sql>",
+        "resourceId": "<resolved via `az resource list`, never hand-typed>"
+      }
+    ]
+  },
   "mockApiEnabled": "<spec.yaml mock_api.enabled | false>"
 }
 ```

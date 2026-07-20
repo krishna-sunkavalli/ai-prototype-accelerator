@@ -117,6 +117,42 @@ class TestFillTemplates(unittest.TestCase):
             hits = sorted(set(PLACEHOLDER_RE.findall(text)))
             self.assertEqual(hits, [], f"{rel} has unresolved placeholders: {hits}")
 
+    def test_data_grounding_json_defaults_to_synthetic(self):
+        result = subprocess.run(
+            [sys.executable, str(self.ws / "accelerator" / "generators" / "fill-templates.py"), "--target", "hooks"],
+            capture_output=True,
+            text=True,
+            cwd=str(self.ws),
+        )
+        self.assertEqual(result.returncode, 0, f"stdout={result.stdout}\nstderr={result.stderr}")
+        out = self.ws / "generated" / "prototype" / "hooks" / "data-grounding.json"
+        self.assertTrue(out.exists(), "missing output: hooks/data-grounding.json")
+        grounding = json.loads(out.read_text(encoding="utf-8"))
+        self.assertEqual(grounding, {"mode": "synthetic", "dataSources": []})
+
+    def test_data_grounding_json_reflects_real_mode(self):
+        manifest_path = self.ws / "generated" / "build-state" / "manifest.json"
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        manifest["dataGrounding"] = {
+            "mode": "real",
+            "dataSources": [
+                {"name": "mystorageacct", "kind": "azure_blob",
+                 "resourceId": "/subscriptions/sub/resourceGroups/rg/providers/Microsoft.Storage/storageAccounts/mystorageacct"},
+            ],
+        }
+        manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+        result = subprocess.run(
+            [sys.executable, str(self.ws / "accelerator" / "generators" / "fill-templates.py"), "--target", "hooks"],
+            capture_output=True,
+            text=True,
+            cwd=str(self.ws),
+        )
+        self.assertEqual(result.returncode, 0, f"stdout={result.stdout}\nstderr={result.stderr}")
+        out = self.ws / "generated" / "prototype" / "hooks" / "data-grounding.json"
+        grounding = json.loads(out.read_text(encoding="utf-8"))
+        self.assertEqual(grounding["mode"], "real")
+        self.assertEqual(grounding["dataSources"][0]["name"], "mystorageacct")
+
     def test_unfilled_placeholder_causes_nonzero_exit(self):
         # Inject a bogus placeholder into the bicepparam template copy.
         tpl = self.ws / "accelerator" / "templates" / "prototype" / "infra" / "main.bicepparam.tpl"

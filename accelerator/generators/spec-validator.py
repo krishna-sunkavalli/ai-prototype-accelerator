@@ -81,8 +81,47 @@ def main() -> None:
         errors.append("no agents defined")
     if not spec.get("tables"):
         errors.append("no tables defined")
-    if not spec.get("documents"):
-        errors.append("no documents defined")
+
+    # data_grounding: optional; defaults to synthetic for specs written before
+    # this feature existed. DATA_GROUNDING_KINDS/MODES live in manifest_schema.py
+    # so the allowed-value lists never drift between the two validators.
+    sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+    from manifest_schema import DATA_GROUNDING_KINDS, DATA_GROUNDING_MODES  # noqa: E402
+
+    grounding_spec = spec.get("data_grounding") or {}
+    grounding_mode = grounding_spec.get("mode", "synthetic")
+    data_sources_spec = grounding_spec.get("data_sources") or []
+
+    if grounding_mode not in DATA_GROUNDING_MODES:
+        errors.append(f"data_grounding.mode must be one of {list(DATA_GROUNDING_MODES)}: {grounding_mode!r}")
+
+    if grounding_mode == "real":
+        if not data_sources_spec:
+            errors.append("data_grounding.mode is 'real' but data_sources is empty")
+    else:
+        # Synthetic path keeps today's requirement: at least one document.
+        if not spec.get("documents"):
+            errors.append("no documents defined")
+
+    _RESOURCE_ID_RE = re.compile(r"^/subscriptions/[^/]+/resourceGroups/[^/]+/providers/.+")
+    seen_ds_names: set[str] = set()
+    for ds in data_sources_spec:
+        ds_name = ds.get("name", "")
+        if not ds_name:
+            errors.append("data_sources entry missing 'name'")
+        elif ds_name in seen_ds_names:
+            errors.append(f"data_sources name duplicated: {ds_name!r}")
+        else:
+            seen_ds_names.add(ds_name)
+        kind = ds.get("kind", "")
+        if kind not in DATA_GROUNDING_KINDS:
+            errors.append(f"data_sources[{ds_name!r}].kind must be one of {list(DATA_GROUNDING_KINDS)}: {kind!r}")
+        resource_id = ds.get("resource_id", "")
+        if not _RESOURCE_ID_RE.match(resource_id):
+            errors.append(
+                f"data_sources[{ds_name!r}].resource_id is not a well-formed ARM resource ID "
+                f"(resolve it via `az resource list`, never hand-type it): {resource_id!r}"
+            )
 
     for t in spec.get("tables", []):
         pk = t.get("partition_key", "")
@@ -272,6 +311,17 @@ def main() -> None:
         "foundryIq": {
             "indexName": foundry["index_name"],
         },
+        "dataGrounding": {
+            "mode": grounding_mode,
+            "dataSources": [
+                {
+                    "name": ds["name"],
+                    "kind": ds["kind"],
+                    "resourceId": ds["resource_id"],
+                }
+                for ds in data_sources_spec
+            ],
+        },
         "mockApiEnabled": bool(mock.get("enabled", False)),
         "mockApiEndpoints": mock.get("endpoints", []) or [],
         "aiLocation": region,
@@ -304,6 +354,9 @@ def main() -> None:
     model_names = ", ".join(m["deployment_name"] for m in spec["model_deployments"])
     print(f"  Models:    {len(spec['model_deployments'])} ({model_names})")
     print(f"  Docs:      {len(spec['documents'])}")
+    if grounding_mode == "real":
+        ds_names = ", ".join(ds["name"] for ds in data_sources_spec)
+        print(f"  Grounding: real ({len(data_sources_spec)} data source(s): {ds_names})")
     print(f"  Suffix:    {suffix}")
     if customer_short != slug:
         print(f"  CustomerShort: {customer_short} (derived; full slug exceeds 20 chars)")

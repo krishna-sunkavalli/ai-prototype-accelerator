@@ -248,7 +248,24 @@ if (-not (Test-Path $SEED_SCRIPT)) {
 }
 Write-Host ""
 
+# -- Determine data grounding mode (synthetic vs real) -----------------------
+# spec.yaml's data_grounding.mode, passed through manifest.json ->
+# fill-templates.py -> this plain JSON file (not a hydrated placeholder --
+# a JSON blob with real resource IDs/names doesn't embed safely inside a
+# shell string literal). Missing file or missing key both default to
+# "synthetic" so builds from before this feature existed keep working
+# unchanged.
+$DATA_GROUNDING_FILE = Join-Path $SCRIPT_DIR "data-grounding.json"
+$GROUNDING_MODE = "synthetic"
+if (Test-Path $DATA_GROUNDING_FILE) {
+  try {
+    $groundingJson = Get-Content $DATA_GROUNDING_FILE -Raw | ConvertFrom-Json
+    if ($groundingJson.mode) { $GROUNDING_MODE = $groundingJson.mode }
+  } catch {}
+}
+
 # -- Step 9: Upload operational documents to Blob Storage ---------------------
+if ($GROUNDING_MODE -eq "synthetic") {
 Write-Host "9)  Uploading operational documents to Blob Storage..."
 
 $DOCS_DIR = Join-Path $SCRIPT_DIR "..\agents\knowledge"
@@ -281,9 +298,12 @@ if ($LASTEXITCODE -ne 0) {
   $uploadedCount = (Get-ChildItem -Path $DOCS_DIR -Filter *.md -File).Count
   Write-Host "   OK: Operational documents uploaded ($uploadedCount file(s))."
 }
+} else {
+Write-Host "9)  Skipped document upload (dataGrounding.mode = real; grounding real Azure data sources instead)."
+}
 Write-Host ""
 
-# -- Step 10: Wire operational documents into a Foundry IQ knowledge base ----
+# -- Step 10: Wire Foundry IQ knowledge base -----------------------------------
 # Real Foundry IQ wiring (not a hand-rolled index): a blob knowledge source
 # auto-generates the data source + skillset (chunking/vectorization) +
 # indexer + index from the blob container, and a knowledge base wraps it for
@@ -292,7 +312,7 @@ Write-Host ""
 # service's OWN identity (granted in step 5c) -- no API key stored in either
 # object. Cosmos DB is untouched by this change; run_sql_query keeps handling
 # precise structured lookups.
-Write-Host "10) Wiring operational documents into Foundry IQ (agentic retrieval)..."
+Write-Host "10) Wiring Foundry IQ knowledge base (agentic retrieval)..."
 
 $INDEX_NAME = if ($env:AZURE_SEARCH_INDEX_NAME) { $env:AZURE_SEARCH_INDEX_NAME } else { "{{SEARCH_INDEX_NAME}}" }
 $KS_NAME = "$INDEX_NAME-ks"
@@ -323,6 +343,7 @@ try {
 } catch {}
 $AI_SERVICES_ENDPOINT = "https://$AI_SERVICES_SUBDOMAIN.services.ai.azure.com/"
 
+if ($GROUNDING_MODE -eq "synthetic") {
 # Identity-based blob connection string -- no storage key stored anywhere.
 $STORAGE_CONNECTION = "ResourceId=/subscriptions/$SUBSCRIPTION_ID/resourceGroups/$env:AZURE_RESOURCE_GROUP/providers/Microsoft.Storage/storageAccounts/$env:AZURE_STORAGE_ACCOUNT_NAME;"
 
@@ -434,6 +455,24 @@ for ($i = 0; $i -lt 6; $i++) {
       Write-Host "   INFO: Ingestion still in progress (status: $status) -- it will finish in the background."
     }
   } catch { break }
+}
+} else {
+# -- Real data grounding: discover + wire the customer's own Azure resources --
+# See accelerator/templates/prototype/hooks/wire_real_data_sources.py for the
+# full discovery/RBAC/knowledge-source/knowledge-base logic. Best-effort and
+# non-fatal by design (external, customer-owned resources are outside this
+# accelerator's control) -- always exits 0.
+$wireOutput = python3 (Join-Path $SCRIPT_DIR "wire_real_data_sources.py") `
+  --data-grounding $DATA_GROUNDING_FILE `
+  --search-endpoint $env:AZURE_SEARCH_ENDPOINT `
+  --admin-key $SEARCH_ADMIN_KEY `
+  --api-version $KS_API_VERSION `
+  --ai-endpoint $AI_SERVICES_ENDPOINT `
+  --search-principal-id "$SEARCH_PRINCIPAL_ID" `
+  --index-name $INDEX_NAME `
+  --customer-name "{{CUSTOMER_NAME}}" `
+  --retrieval-instructions "{{KB_RETRIEVAL_INSTRUCTIONS}}" 2>&1
+$wireOutput | ForEach-Object { Write-Host "   $_" }
 }
 Write-Host ""
 

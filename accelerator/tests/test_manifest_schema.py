@@ -102,6 +102,61 @@ class TestManifestSchema(unittest.TestCase):
             if tmp.exists():
                 tmp.unlink()
 
+    def test_data_grounding_absent_defaults_to_synthetic(self):
+        m = _minimal_manifest()
+        self.assertNotIn("dataGrounding", m)
+        self.assertEqual(manifest_schema.validate(m), [])
+
+    def test_data_grounding_real_requires_data_sources(self):
+        m = _minimal_manifest()
+        m["dataGrounding"] = {"mode": "real", "dataSources": []}
+        errors = manifest_schema.validate(m)
+        self.assertTrue(any("dataSources is empty" in e for e in errors), errors)
+
+    def test_data_grounding_invalid_mode(self):
+        m = _minimal_manifest()
+        m["dataGrounding"] = {"mode": "bogus", "dataSources": []}
+        errors = manifest_schema.validate(m)
+        self.assertTrue(any("dataGrounding.mode must be one of" in e for e in errors), errors)
+
+    def test_data_grounding_invalid_kind(self):
+        m = _minimal_manifest()
+        m["dataGrounding"] = {
+            "mode": "real",
+            "dataSources": [{
+                "name": "mystorageacct",
+                "kind": "cosmos_db",
+                "resourceId": "/subscriptions/sub/resourceGroups/rg/providers/Microsoft.Storage/storageAccounts/mystorageacct",
+            }],
+        }
+        errors = manifest_schema.validate(m)
+        self.assertTrue(any("kind 'cosmos_db' not one of" in e for e in errors), errors)
+
+    def test_data_grounding_invalid_resource_id(self):
+        m = _minimal_manifest()
+        m["dataGrounding"] = {
+            "mode": "real",
+            "dataSources": [{
+                "name": "mystorageacct",
+                "kind": "azure_blob",
+                "resourceId": "mystorageacct",
+            }],
+        }
+        errors = manifest_schema.validate(m)
+        self.assertTrue(any("not a well-formed" in e for e in errors), errors)
+
+    def test_data_grounding_valid_real_passes(self):
+        m = _minimal_manifest()
+        m["dataGrounding"] = {
+            "mode": "real",
+            "dataSources": [{
+                "name": "mystorageacct",
+                "kind": "azure_blob",
+                "resourceId": "/subscriptions/sub/resourceGroups/rg/providers/Microsoft.Storage/storageAccounts/mystorageacct",
+            }],
+        }
+        self.assertEqual(manifest_schema.validate(m), [])
+
 
 if __name__ == "__main__":
     unittest.main()

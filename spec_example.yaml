@@ -151,3 +151,21 @@ model_deployments:
 mock_api:
   enabled: false
   endpoints: []
+
+# How the assistant's knowledge base is grounded.
+#   synthetic (default) -- documents[] above is LLM-generated and indexed as today.
+#   real -- ground Foundry IQ in the customer's OWN existing Azure resources instead.
+#           Only kinds Foundry IQ (Azure AI Search) natively supports: azure_blob,
+#           azure_sql. Give just the resource name + resource_id; the accelerator
+#           discovers everything under it (all containers / all tables & views) at
+#           deploy time and wires each one in as a knowledge source.
+data_grounding:
+  mode: synthetic
+  data_sources: []
+  # data_sources:
+  #   - name: mystorageacct
+  #     kind: azure_blob
+  #     resource_id: /subscriptions/<sub>/resourceGroups/<rg>/providers/Microsoft.Storage/storageAccounts/mystorageacct
+  #   - name: mysqlserver/mydb
+  #     kind: azure_sql
+  #     resource_id: /subscriptions/<sub>/resourceGroups/<rg>/providers/Microsoft.Sql/servers/mysqlserver/databases/mydb

@@ -229,7 +229,18 @@ else
 fi
 echo ""
 
+# -- Determine data grounding mode (synthetic vs real) -----------------------
+# spec.yaml's data_grounding.mode, passed through manifest.json ->
+# fill-templates.py -> this plain JSON file (not a hydrated placeholder --
+# a JSON blob with real resource IDs/names doesn't embed safely inside a
+# shell string literal). Missing file or missing key both default to
+# "synthetic" so builds from before this feature existed keep working
+# unchanged.
+DATA_GROUNDING_FILE="${SCRIPT_DIR}/data-grounding.json"
+GROUNDING_MODE=$(python3 -c "import json; print(json.load(open('${DATA_GROUNDING_FILE}')).get('mode','synthetic'))" 2>/dev/null || echo "synthetic")
+
 # -- Step 9: Upload operational documents to Blob Storage ---------------------
+if [ "${GROUNDING_MODE}" = "synthetic" ]; then
 echo "9)  Uploading operational documents to Blob Storage..."
 
 DOCS_DIR="${SCRIPT_DIR}/../agents/knowledge"
@@ -263,9 +274,12 @@ else
   UPLOADED_COUNT=$(find "${DOCS_DIR}" -maxdepth 1 -name '*.md' -type f | wc -l)
   echo "   OK: Operational documents uploaded (${UPLOADED_COUNT} file(s))."
 fi
+else
+echo "9)  Skipped document upload (dataGrounding.mode = real; grounding real Azure data sources instead)."
+fi
 echo ""
 
-# -- Step 10: Wire operational documents into a Foundry IQ knowledge base ----
+# -- Step 10: Wire Foundry IQ knowledge base -----------------------------------
 # Real Foundry IQ wiring (not a hand-rolled index): a blob knowledge source
 # auto-generates the data source + skillset (chunking/vectorization) +
 # indexer + index from the blob container, and a knowledge base wraps it for
@@ -274,7 +288,7 @@ echo ""
 # service's OWN identity (granted in step 5c) -- no API key stored in either
 # object. Cosmos DB is untouched by this change; run_sql_query keeps handling
 # precise structured lookups.
-echo "10) Wiring operational documents into Foundry IQ (agentic retrieval)..."
+echo "10) Wiring Foundry IQ knowledge base (agentic retrieval)..."
 
 INDEX_NAME="${AZURE_SEARCH_INDEX_NAME:-{{SEARCH_INDEX_NAME}}}"
 KS_NAME="${INDEX_NAME}-ks"
@@ -302,6 +316,7 @@ AI_SERVICES_SUBDOMAIN=$(az cognitiveservices account show \
   --query properties.customSubDomainName --output tsv 2>/dev/null || true)
 AI_SERVICES_ENDPOINT="https://${AI_SERVICES_SUBDOMAIN}.services.ai.azure.com/"
 
+if [ "${GROUNDING_MODE}" = "synthetic" ]; then
 # Identity-based blob connection string -- no storage key stored anywhere.
 STORAGE_CONNECTION="ResourceId=/subscriptions/${AZURE_SUBSCRIPTION_ID}/resourceGroups/${AZURE_RESOURCE_GROUP}/providers/Microsoft.Storage/storageAccounts/${AZURE_STORAGE_ACCOUNT_NAME};"
 
@@ -414,6 +429,23 @@ except Exception:
     echo "   INFO: Ingestion still in progress (status: ${SYNC_STATUS}) -- it will finish in the background."
   fi
 done
+else
+# -- Real data grounding: discover + wire the customer's own Azure resources --
+# See accelerator/templates/prototype/hooks/wire_real_data_sources.py for the
+# full discovery/RBAC/knowledge-source/knowledge-base logic. Best-effort and
+# non-fatal by design (external, customer-owned resources are outside this
+# accelerator's control) -- always exits 0.
+python3 "${SCRIPT_DIR}/wire_real_data_sources.py" \
+  --data-grounding "${DATA_GROUNDING_FILE}" \
+  --search-endpoint "${AZURE_SEARCH_ENDPOINT}" \
+  --admin-key "${SEARCH_ADMIN_KEY}" \
+  --api-version "${KS_API_VERSION}" \
+  --ai-endpoint "${AI_SERVICES_ENDPOINT}" \
+  --search-principal-id "${SEARCH_PRINCIPAL_ID:-}" \
+  --index-name "${INDEX_NAME}" \
+  --customer-name "{{CUSTOMER_NAME}}" \
+  --retrieval-instructions "{{KB_RETRIEVAL_INSTRUCTIONS}}" 2>&1 | sed "s/^/   /"
+fi
 echo ""
 
 # -- Step 11: Register AI Foundry agents --------------------------------------

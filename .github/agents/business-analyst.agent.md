@@ -103,6 +103,14 @@ Ask these topics **one at a time** in this order. Pre-fill sensible defaults fro
 3. **Agents** — Propose 2–3 specialist agent names and roles that fit the use case. Confirm with user.
 4. **Data** — Propose the key structured data tables and fields. Confirm with user.
 5. **Knowledge base** — Propose what documents the AI should search (policies, manuals, FAQs). Confirm.
+
+   Before proposing synthetic documents, **always ask** (via `vscode_askQuestions`, even in autonomous default-decision mode — this question is exempt from the "complete silently" rule below, same as Deployment, because it determines whether real Azure resources are required): **"Should I ground this in synthetic demo data (fast, no real Azure resources needed), or your own real Azure data?"** — `Synthetic (recommended for a demo)` / `Real Azure data`.
+   - If **synthetic**: proceed exactly as below (propose `documents[]`).
+   - If **real**: ask which kind(s) hold the data — `Storage account (Blob)` / `Azure SQL Database` (multi-select; these are the only kinds Foundry IQ's knowledge sources natively support). Then ask for the resource name(s), comma-separated (for SQL, the `server/database` form, e.g. `mysqlserver/mydb`). For each name, resolve it against Azure:
+     ```
+     az resource list --name <name> --query "[].{id:id,type:type,resourceGroup:resourceGroup}" -o json
+     ```
+     Confirm the resolved `type` matches the expected kind (`Microsoft.Storage/storageAccounts` or `Microsoft.Sql/servers/databases`); if zero or multiple matches, ask the user to disambiguate. Never hand-type or guess a `resource_id` — it must come from this lookup. Do not ask for a specific container or table/view name — the build discovers everything under each resource automatically and wires it all into Foundry IQ.
 6. **Deployment** — Azure region (chosen via the geolocation + capacity-check procedure in **Step 2.6**) and resource group name.
 
 After each answer or autonomous default decision, confirm back: "Got it — [summary]. Next: ..."
@@ -118,19 +126,19 @@ Step 2 formatting rules:
 - `Use case refinement`: present a recommended default framing and 2-4 adjustment options
 - `Agents`: present a recommended specialist set as a selectable option
 - `Data`: present a recommended table set as a selectable option
-- `Knowledge base`: present a recommended document set as a selectable option
+- `Knowledge base`: present a recommended document set as a selectable option, but the synthetic-vs-real question above always pauses for an explicit answer first (see below) — it is never silently defaulted. Only run the resource-resolution follow-up when the user picks `Real Azure data`.
 - `Deployment`: follow the **Step 2.6** procedure below — geolocate, propose three regions, capacity-check, retry on failure.
 
 If the user already picked an option in a prior message, treat it as confirmed and move to the next topic.
-If the user said "the agent should decide", "pick for me", or equivalent, treat the recommended option for each remaining topic as confirmed and continue without asking.
+If the user said "the agent should decide", "pick for me", or equivalent, treat the recommended option for each remaining topic as confirmed and continue without asking — **except** the synthetic-vs-real question and Deployment/region, which always pause for an explicit answer regardless of autonomous mode.
 
 Default autonomous behavior after Step 1 (the normal path):
 
 - Do not stop after Step 1
 - Do not emit "Got it" confirmations, planning notes, "I'm writing the spec now" narration, or any tool/progress text
-- Complete all remaining Step 2 topics using recommended defaults silently — **except Deployment**, which always runs the interactive Step 2.6 procedure (geolocate, show three-region MCQ, capacity-check, retry on failure)
+- Complete all remaining Step 2 topics using recommended defaults silently — **except Deployment** (always runs the interactive Step 2.6 procedure: geolocate, show three-region MCQ, capacity-check, retry on failure) **and the Knowledge base topic's synthetic-vs-real question** (always shown via `vscode_askQuestions`, defaulting the MCQ's `recommended` flag to `Synthetic` so a quick confirm keeps things fast, but never silently assumed without asking)
 - Then proceed directly to Step 3 and write `spec.yaml`
-- The only user-visible outputs after the Step 1 MCQ should be the Step 2.6 region MCQ and the Step 3 summary that appears once `spec.yaml` has been written
+- The only user-visible outputs after the Step 1 MCQ should be the synthetic-vs-real MCQ, the Step 2.6 region MCQ, and the Step 3 summary that appears once `spec.yaml` has been written
 
 ---
 
@@ -312,6 +320,17 @@ model_deployments:
 mock_api:
   enabled: false
   endpoints: []
+
+# Default: synthetic. Only switch to real + populate data_sources when the
+# user explicitly chose "Real Azure data" in Step 2 topic 5, with resource_id
+# values resolved via `az resource list` — never hand-typed.
+data_grounding:
+  mode: synthetic
+  data_sources: []
+  # data_sources:
+  #   - name: <resource name as given by the user>
+  #     kind: azure_blob   # or azure_sql
+  #     resource_id: <resolved via az resource list, full ARM path>
 ```
 
 ### Schema invariants (enforced by `spec-validator.py` — bake these in before writing)
@@ -325,6 +344,10 @@ mock_api:
 - At least one agent, one table, one document.
 - `starter_questions`: exactly 4-5 entries, each ≤70 characters, phrased naturally ("When will my power be restored?"), never compound sentences — they render as clickable chips and long questions wrap into ragged rows. Aim for each question to route to a different specialist.
 - ASCII only — no smart quotes, em dashes, ellipses, or other Unicode punctuation in any string field (the build pipeline normalizes them, but emit ASCII at the source).
+- `data_grounding.mode`: must be `synthetic` or `real`.
+- `data_grounding.data_sources[].kind`: must be `azure_blob` or `azure_sql` — the only kinds Foundry IQ knowledge sources support.
+- `data_grounding.data_sources[].resource_id`: must be a well-formed ARM resource ID resolved via `az resource list` — never a placeholder or guessed value.
+- When `data_grounding.mode` is `real`, `data_sources` must have at least one entry, and `documents` may be empty (the synthetic docs-agent step is skipped).
 
 Step 3 output rules:
 
