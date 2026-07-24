@@ -1,0 +1,598 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>SME&amp;C Sales Scorecard</title>
+<style>
+  /* ============================================================
+     SME&C SALES SCORECARD — THEME / BACKGROUND
+     Design language: MCAPS "Now it's time to execute" F1 theme
+     Deep space-black canvas, teal/cyan racing glow, blue→teal
+     gradient headings. Populate the sample data with live values.
+     ============================================================ */
+
+  :root {
+    /* Core palette */
+    --bg-0:        #04070d;   /* deepest black */
+    --bg-1:        #0a1018;   /* panel base */
+    --bg-2:        #0f1824;   /* raised panel */
+    --bg-3:        #16222f;   /* hover / stroke fill */
+    --stroke:      rgba(120, 200, 220, 0.14);
+    --stroke-soft: rgba(120, 200, 220, 0.08);
+
+    /* Brand accents (F1 teal/cyan/blue) */
+    --teal:        #2ee6c5;
+    --cyan:        #35c9f0;
+    --blue:        #2f7df6;
+    --blue-deep:   #1b4bd6;
+    --ink:         #e8f2f7;   /* primary text */
+    --ink-soft:    #9fb3c2;   /* secondary text */
+    --ink-mute:    #5f7383;   /* muted labels */
+
+    /* Semantic status */
+    --good:        #2ee6a0;
+    --warn:        #f5c451;
+    --risk:        #ff6b7d;
+
+    --grad-head:   linear-gradient(100deg, #2f7df6 0%, #35c9f0 45%, #2ee6c5 100%);
+    --grad-glow:   radial-gradient(120% 140% at 85% 0%, rgba(46,230,197,0.18) 0%, rgba(47,125,246,0.10) 35%, rgba(4,7,13,0) 70%);
+    --shadow:      0 10px 40px -12px rgba(0,0,0,0.7);
+    --radius:      16px;
+    font-synthesis: none;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html { -webkit-text-size-adjust: 100%; }
+
+  body {
+    font-family: "Segoe UI", -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif;
+    color: var(--ink);
+    background:
+      var(--grad-glow),
+      radial-gradient(90% 60% at 10% 100%, rgba(47,125,246,0.10), rgba(4,7,13,0) 55%),
+      var(--bg-0);
+    background-attachment: fixed;
+    min-height: 100vh;
+    line-height: 1.45;
+    letter-spacing: 0.1px;
+    padding: 28px clamp(16px, 4vw, 48px) 48px;
+  }
+
+  /* Faint speed-streak texture across the whole canvas */
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    background-image:
+      linear-gradient(90deg, rgba(53,201,240,0.05) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(46,230,197,0.035) 1px, transparent 1px);
+    background-size: 220px 100%, 90px 100%;
+    -webkit-mask-image: linear-gradient(180deg, transparent, #000 22%, #000 78%, transparent);
+            mask-image: linear-gradient(180deg, transparent, #000 22%, #000 78%, transparent);
+    opacity: 0.6;
+    z-index: 0;
+  }
+
+  .wrap { position: relative; z-index: 1; max-width: 1360px; margin: 0 auto; }
+
+  /* ============================== HEADER ============================== */
+  .topbar {
+    position: relative;
+    overflow: hidden;
+    border-radius: var(--radius);
+    border: 1px solid var(--stroke);
+    background:
+      radial-gradient(90% 200% at 88% 30%, rgba(46,230,197,0.22), rgba(47,125,246,0.10) 40%, rgba(4,7,13,0) 72%),
+      linear-gradient(180deg, #060b12, #05080e);
+    padding: 26px clamp(20px, 3vw, 34px);
+    box-shadow: var(--shadow);
+  }
+  /* stylised motion streaks (evokes the F1 car speed lines) */
+  .topbar::after {
+    content: "";
+    position: absolute;
+    right: -6%;
+    top: -30%;
+    width: 55%;
+    height: 160%;
+    background:
+      linear-gradient(115deg, transparent 40%, rgba(53,201,240,0.10) 55%, transparent 62%),
+      linear-gradient(115deg, transparent 48%, rgba(46,230,197,0.14) 60%, transparent 66%),
+      linear-gradient(115deg, transparent 70%, rgba(47,125,246,0.10) 78%, transparent 84%);
+    transform: skewX(-18deg);
+    pointer-events: none;
+  }
+  .topbar-inner {
+    position: relative;
+    z-index: 2;
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 20px;
+    flex-wrap: wrap;
+  }
+  .brand {
+    font-weight: 600;
+    font-size: 15px;
+    letter-spacing: 2px;
+    color: #fff;
+  }
+  .brand .amp { color: var(--teal); font-size: 0.7em; vertical-align: 0.15em; letter-spacing: 0; }
+  .title-block h1 {
+    margin-top: 14px;
+    font-size: clamp(28px, 4.4vw, 46px);
+    font-weight: 600;
+    line-height: 1.02;
+    background: var(--grad-head);
+    -webkit-background-clip: text;
+            background-clip: text;
+    color: transparent;
+    letter-spacing: -0.5px;
+  }
+  .title-block .sub {
+    margin-top: 12px;
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    border: 1px solid rgba(232,242,247,0.55);
+    border-radius: 999px;
+    padding: 7px 16px;
+    font-size: 13px;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    color: var(--ink);
+  }
+  .title-block .sub .dot {
+    width: 7px; height: 7px; border-radius: 50%;
+    background: var(--teal);
+    box-shadow: 0 0 10px var(--teal);
+  }
+  .meta {
+    text-align: right;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 180px;
+  }
+  .meta .period {
+    font-size: 20px; font-weight: 600; color: #fff; letter-spacing: 0.5px;
+  }
+  .meta .row { font-size: 12.5px; color: var(--ink-soft); }
+  .meta .row b { color: var(--teal); font-weight: 600; }
+
+  /* ============================== KPI ROW ============================== */
+  .section-label {
+    display: flex; align-items: center; gap: 12px;
+    margin: 30px 2px 14px;
+    font-size: 12px; letter-spacing: 2.5px; text-transform: uppercase;
+    color: var(--ink-mute);
+  }
+  .section-label::after {
+    content: ""; flex: 1; height: 1px;
+    background: linear-gradient(90deg, var(--stroke), transparent);
+  }
+
+  .kpis {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 16px;
+  }
+  .kpi {
+    position: relative;
+    overflow: hidden;
+    border-radius: var(--radius);
+    border: 1px solid var(--stroke);
+    background: linear-gradient(180deg, var(--bg-2), var(--bg-1));
+    padding: 20px 20px 18px;
+    box-shadow: var(--shadow);
+    transition: transform .18s ease, border-color .18s ease;
+  }
+  .kpi:hover { transform: translateY(-3px); border-color: rgba(46,230,197,0.35); }
+  .kpi::before {
+    content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px;
+    background: var(--grad-head);
+  }
+  .kpi .k-label {
+    font-size: 12px; letter-spacing: 1.2px; text-transform: uppercase;
+    color: var(--ink-soft);
+  }
+  .kpi .k-value {
+    margin-top: 10px; font-size: 34px; font-weight: 700; letter-spacing: -0.5px; color: #fff;
+  }
+  .kpi .k-value .unit { font-size: 18px; font-weight: 600; color: var(--ink-soft); margin-left: 2px; }
+  .kpi .k-foot {
+    margin-top: 12px; display: flex; align-items: center; gap: 8px; font-size: 12.5px;
+    color: var(--ink-soft);
+  }
+  .trend { font-weight: 700; display: inline-flex; align-items: center; gap: 4px; }
+  .trend.up   { color: var(--good); }
+  .trend.down { color: var(--risk); }
+  .trend.flat { color: var(--warn); }
+
+  /* progress meter used inside KPI foot */
+  .meter { margin-top: 14px; height: 6px; border-radius: 6px; background: var(--bg-3); overflow: hidden; }
+  .meter > span { display: block; height: 100%; border-radius: 6px; background: var(--grad-head); }
+  .meter-cap { margin-top: 6px; font-size: 11.5px; color: var(--ink-mute); display: flex; justify-content: space-between; }
+
+  /* ============================== MAIN GRID ============================== */
+  .grid {
+    display: grid;
+    grid-template-columns: 1.9fr 1fr;
+    gap: 16px;
+    align-items: start;
+  }
+  .panel {
+    border-radius: var(--radius);
+    border: 1px solid var(--stroke);
+    background: linear-gradient(180deg, var(--bg-2), var(--bg-1));
+    box-shadow: var(--shadow);
+    overflow: hidden;
+  }
+  .panel-head {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--stroke-soft);
+  }
+  .panel-head h2 { font-size: 15px; font-weight: 600; letter-spacing: 0.3px; color: #fff; }
+  .panel-head .hint { font-size: 11.5px; color: var(--ink-mute); letter-spacing: 1px; text-transform: uppercase; }
+
+  /* ---- Pipeline table ---- */
+  table { width: 100%; border-collapse: collapse; }
+  thead th {
+    text-align: left; font-size: 11px; letter-spacing: 1px; text-transform: uppercase;
+    color: var(--ink-mute); font-weight: 600;
+    padding: 12px 20px; background: rgba(255,255,255,0.015);
+  }
+  thead th.num, tbody td.num { text-align: right; }
+  tbody td { padding: 14px 20px; font-size: 13.5px; border-top: 1px solid var(--stroke-soft); color: var(--ink); }
+  tbody tr:hover { background: rgba(53,201,240,0.04); }
+  .acct { font-weight: 600; color: #fff; }
+  .acct small { display: block; font-weight: 400; color: var(--ink-mute); font-size: 11.5px; letter-spacing: .3px; }
+  .amount { font-variant-numeric: tabular-nums; font-weight: 600; color: #fff; }
+
+  .stage {
+    display: inline-block; padding: 3px 10px; border-radius: 999px; font-size: 11.5px; font-weight: 600;
+    letter-spacing: .3px; border: 1px solid transparent;
+  }
+  .stage.qualify   { color: #9fb3c2; background: rgba(159,179,194,0.10); border-color: rgba(159,179,194,0.25); }
+  .stage.propose   { color: var(--cyan);  background: rgba(53,201,240,0.10); border-color: rgba(53,201,240,0.30); }
+  .stage.negotiate { color: var(--teal);  background: rgba(46,230,197,0.10); border-color: rgba(46,230,197,0.32); }
+  .stage.commit    { color: var(--blue);  background: rgba(47,125,246,0.14); border-color: rgba(47,125,246,0.38); }
+  .stage.won       { color: #061c14; background: var(--good); border-color: var(--good); }
+
+  .pill-risk { font-size: 11.5px; font-weight: 600; }
+  .pill-risk.low  { color: var(--good); }
+  .pill-risk.med  { color: var(--warn); }
+  .pill-risk.high { color: var(--risk); }
+
+  /* ---- Right column stacked cards ---- */
+  .side { display: grid; gap: 16px; }
+
+  /* Funnel */
+  .funnel { padding: 18px 20px 20px; display: grid; gap: 10px; }
+  .funnel .stage-row { display: grid; gap: 6px; }
+  .funnel .stage-row .top { display: flex; justify-content: space-between; font-size: 12.5px; color: var(--ink-soft); }
+  .funnel .stage-row .top b { color: #fff; font-variant-numeric: tabular-nums; }
+  .bar { height: 10px; border-radius: 6px; background: var(--bg-3); overflow: hidden; }
+  .bar > span { display: block; height: 100%; border-radius: 6px; }
+  .bar.s1 > span { background: linear-gradient(90deg, var(--blue-deep), var(--blue)); }
+  .bar.s2 > span { background: linear-gradient(90deg, var(--blue), var(--cyan)); }
+  .bar.s3 > span { background: linear-gradient(90deg, var(--cyan), var(--teal)); }
+  .bar.s4 > span { background: linear-gradient(90deg, var(--teal), #7bffdf); }
+  .bar.s5 > span { background: var(--good); }
+
+  /* Goal / attainment donut-ish */
+  .attain { padding: 20px; display: flex; align-items: center; gap: 20px; }
+  .dial {
+    --pct: 76;
+    width: 116px; height: 116px; border-radius: 50%; flex-shrink: 0;
+    background:
+      radial-gradient(closest-side, var(--bg-1) 71%, transparent 72% 100%),
+      conic-gradient(var(--teal) calc(var(--pct) * 1%), var(--bg-3) 0);
+    display: grid; place-items: center;
+    position: relative;
+  }
+  .dial::after {
+    content: ""; position: absolute; inset: 8px; border-radius: 50%;
+    box-shadow: 0 0 24px rgba(46,230,197,0.25) inset;
+  }
+  .dial .pct { font-size: 26px; font-weight: 700; color: #fff; }
+  .dial .pct small { display: block; font-size: 10px; letter-spacing: 1.5px; color: var(--ink-mute); font-weight: 600; }
+  .attain .legend { display: grid; gap: 10px; font-size: 13px; }
+  .attain .legend .li { display: flex; justify-content: space-between; gap: 16px; }
+  .attain .legend .li span { color: var(--ink-soft); }
+  .attain .legend .li b { color: #fff; font-variant-numeric: tabular-nums; }
+
+  /* Highlights list */
+  .highlights { padding: 8px 8px 12px; }
+  .hl {
+    display: flex; gap: 12px; padding: 12px; border-radius: 12px;
+    align-items: flex-start;
+  }
+  .hl:hover { background: rgba(255,255,255,0.02); }
+  .hl .ic {
+    width: 34px; height: 34px; border-radius: 10px; flex-shrink: 0;
+    display: grid; place-items: center; font-size: 15px;
+    border: 1px solid var(--stroke); background: var(--bg-2);
+  }
+  .hl .tx { font-size: 13px; color: var(--ink-soft); }
+  .hl .tx b { color: #fff; font-weight: 600; }
+
+  /* ============================== FOOTER ============================== */
+  .footer {
+    margin-top: 26px;
+    position: relative;
+    overflow: hidden;
+    border-radius: var(--radius);
+    border: 1px solid var(--stroke);
+    background:
+      linear-gradient(90deg, rgba(46,230,197,0.16), rgba(47,125,246,0.10) 30%, rgba(4,7,13,0) 55%),
+      linear-gradient(180deg, #060b12, #05080e);
+    padding: 18px clamp(20px, 3vw, 30px);
+    display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap;
+  }
+  .footer::before {
+    content: ""; position: absolute; left: -4%; top: -40%; width: 34%; height: 180%;
+    background:
+      linear-gradient(115deg, transparent 45%, rgba(46,230,197,0.18) 58%, transparent 66%),
+      linear-gradient(115deg, transparent 60%, rgba(53,201,240,0.12) 72%, transparent 80%);
+    transform: skewX(-18deg); pointer-events: none;
+  }
+  .footer .note { position: relative; z-index: 2; font-size: 12px; color: var(--ink-mute); letter-spacing: .3px; }
+  .cobrand { position: relative; z-index: 2; display: flex; align-items: center; gap: 16px; }
+  .ms-logo { display: flex; align-items: center; gap: 9px; font-size: 16px; font-weight: 600; color: #fff; letter-spacing: .3px; }
+  .ms-grid { display: grid; grid-template-columns: 10px 10px; grid-template-rows: 10px 10px; gap: 2px; }
+  .ms-grid i { display: block; width: 10px; height: 10px; }
+  .ms-grid i:nth-child(1) { background: #f25022; }
+  .ms-grid i:nth-child(2) { background: #7fba00; }
+  .ms-grid i:nth-child(3) { background: #00a4ef; }
+  .ms-grid i:nth-child(4) { background: #ffb900; }
+  .divider { width: 1px; height: 22px; background: rgba(255,255,255,0.25); }
+  .smec { font-size: 17px; font-weight: 600; letter-spacing: 1px; color: #fff; }
+  .smec .amp { color: var(--teal); font-size: 0.68em; vertical-align: .12em; }
+
+  /* ============================== RESPONSIVE ============================== */
+  @media (max-width: 1080px) {
+    .grid { grid-template-columns: 1fr; }
+    .kpis { grid-template-columns: repeat(2, 1fr); }
+  }
+  @media (max-width: 560px) {
+    .kpis { grid-template-columns: 1fr; }
+    .meta { text-align: left; }
+    .table-scroll { overflow-x: auto; }
+    table { min-width: 560px; }
+  }
+
+  /* Print friendly (scorecard export) */
+  @media print {
+    body { background: #04070d; padding: 0; }
+    .kpi:hover, tbody tr:hover { transform: none; background: none; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <!-- ============================ HEADER ============================ -->
+  <header class="topbar">
+    <div class="topbar-inner">
+      <div class="title-block">
+        <div class="brand">SME<span class="amp">&amp;</span>C</div>
+        <h1>Sales Scorecard</h1>
+        <div class="sub"><span class="dot"></span>Now it&rsquo;s time to execute</div>
+      </div>
+      <div class="meta">
+        <div class="period">FY26 &middot; Q1</div>
+        <div class="row">Owner &middot; <b>Field Sales Team</b></div>
+        <div class="row">Refreshed &middot; <b>Jul 24, 2026</b></div>
+      </div>
+    </div>
+  </header>
+
+  <!-- ============================ KPI ROW ============================ -->
+  <div class="section-label">Headline metrics</div>
+  <section class="kpis">
+    <div class="kpi">
+      <div class="k-label">Total Pipeline</div>
+      <div class="k-value">$48.2<span class="unit">M</span></div>
+      <div class="k-foot"><span class="trend up">&#9650; 12.4%</span> vs. prior quarter</div>
+      <div class="meter"><span style="width:82%"></span></div>
+      <div class="meter-cap"><span>Coverage 3.4x</span><span>Target 3.0x</span></div>
+    </div>
+    <div class="kpi">
+      <div class="k-label">Open Opportunities</div>
+      <div class="k-value">184</div>
+      <div class="k-foot"><span class="trend up">&#9650; 9</span> net new this week</div>
+      <div class="meter"><span style="width:64%"></span></div>
+      <div class="meter-cap"><span>Qualified 118</span><span>Total 184</span></div>
+    </div>
+    <div class="kpi">
+      <div class="k-label">Closed Won (QTD)</div>
+      <div class="k-value">$14.6<span class="unit">M</span></div>
+      <div class="k-foot"><span class="trend up">&#9650; 6.1%</span> ahead of pace</div>
+      <div class="meter"><span style="width:76%"></span></div>
+      <div class="meter-cap"><span>Quota $19.2M</span><span>76% attained</span></div>
+    </div>
+    <div class="kpi">
+      <div class="k-label">Win Rate</div>
+      <div class="k-value">31<span class="unit">%</span></div>
+      <div class="k-foot"><span class="trend down">&#9660; 2.0pts</span> vs. target 33%</div>
+      <div class="meter"><span style="width:31%"></span></div>
+      <div class="meter-cap"><span>Avg cycle 62d</span><span>Target 33%</span></div>
+    </div>
+  </section>
+
+  <!-- ============================ MAIN GRID ============================ -->
+  <div class="section-label">Pipeline detail</div>
+  <div class="grid">
+
+    <!-- Left: Top opportunities table -->
+    <section class="panel">
+      <div class="panel-head">
+        <h2>Top Opportunities</h2>
+        <span class="hint">Weighted &middot; by close date</span>
+      </div>
+      <div class="table-scroll">
+        <table>
+          <thead>
+            <tr>
+              <th>Account</th>
+              <th>Stage</th>
+              <th class="num">Amount</th>
+              <th class="num">Close</th>
+              <th class="num">Risk</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td class="acct">Contoso Ltd<small>Manufacturing &middot; Azure migration</small></td>
+              <td><span class="stage commit">Commit</span></td>
+              <td class="num amount">$4.20M</td>
+              <td class="num">Aug 30</td>
+              <td class="num"><span class="pill-risk low">Low</span></td>
+            </tr>
+            <tr>
+              <td class="acct">Fabrikam Inc<small>Retail &middot; D365 + Copilot</small></td>
+              <td><span class="stage negotiate">Negotiate</span></td>
+              <td class="num amount">$3.05M</td>
+              <td class="num">Sep 12</td>
+              <td class="num"><span class="pill-risk med">Medium</span></td>
+            </tr>
+            <tr>
+              <td class="acct">Northwind Traders<small>Logistics &middot; Fabric + Security</small></td>
+              <td><span class="stage propose">Propose</span></td>
+              <td class="num amount">$2.48M</td>
+              <td class="num">Sep 28</td>
+              <td class="num"><span class="pill-risk med">Medium</span></td>
+            </tr>
+            <tr>
+              <td class="acct">Adventure Works<small>Healthcare &middot; M365 E5 uplift</small></td>
+              <td><span class="stage commit">Commit</span></td>
+              <td class="num amount">$1.92M</td>
+              <td class="num">Aug 18</td>
+              <td class="num"><span class="pill-risk low">Low</span></td>
+            </tr>
+            <tr>
+              <td class="acct">Tailwind Traders<small>Finance &middot; Azure AI platform</small></td>
+              <td><span class="stage negotiate">Negotiate</span></td>
+              <td class="num amount">$1.55M</td>
+              <td class="num">Sep 05</td>
+              <td class="num"><span class="pill-risk high">High</span></td>
+            </tr>
+            <tr>
+              <td class="acct">Wingtip Toys<small>Consumer &middot; Copilot rollout</small></td>
+              <td><span class="stage qualify">Qualify</span></td>
+              <td class="num amount">$0.98M</td>
+              <td class="num">Oct 10</td>
+              <td class="num"><span class="pill-risk med">Medium</span></td>
+            </tr>
+            <tr>
+              <td class="acct">Proseware Inc<small>Public sector &middot; Security E5</small></td>
+              <td><span class="stage won">Won</span></td>
+              <td class="num amount">$0.86M</td>
+              <td class="num">Jul 19</td>
+              <td class="num"><span class="pill-risk low">&mdash;</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Right: stacked cards -->
+    <div class="side">
+
+      <!-- Funnel -->
+      <section class="panel">
+        <div class="panel-head">
+          <h2>Pipeline by Stage</h2>
+          <span class="hint">Count &middot; value</span>
+        </div>
+        <div class="funnel">
+          <div class="stage-row">
+            <div class="top"><span>Qualify</span><b>52 &middot; $12.1M</b></div>
+            <div class="bar s1"><span style="width:100%"></span></div>
+          </div>
+          <div class="stage-row">
+            <div class="top"><span>Propose</span><b>41 &middot; $10.4M</b></div>
+            <div class="bar s2"><span style="width:82%"></span></div>
+          </div>
+          <div class="stage-row">
+            <div class="top"><span>Negotiate</span><b>34 &middot; $9.7M</b></div>
+            <div class="bar s3"><span style="width:70%"></span></div>
+          </div>
+          <div class="stage-row">
+            <div class="top"><span>Commit</span><b>22 &middot; $8.4M</b></div>
+            <div class="bar s4"><span style="width:55%"></span></div>
+          </div>
+          <div class="stage-row">
+            <div class="top"><span>Closed Won</span><b>35 &middot; $14.6M</b></div>
+            <div class="bar s5"><span style="width:48%"></span></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Attainment dial -->
+      <section class="panel">
+        <div class="panel-head">
+          <h2>Quota Attainment</h2>
+          <span class="hint">QTD</span>
+        </div>
+        <div class="attain">
+          <div class="dial" style="--pct:76"><div class="pct">76%<small>ATTAINED</small></div></div>
+          <div class="legend">
+            <div class="li"><span>Closed Won</span><b>$14.6M</b></div>
+            <div class="li"><span>Commit gap</span><b>$4.6M</b></div>
+            <div class="li"><span>Quarter quota</span><b>$19.2M</b></div>
+            <div class="li"><span>Days remaining</span><b>38</b></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Highlights -->
+      <section class="panel">
+        <div class="panel-head">
+          <h2>Signals &amp; Actions</h2>
+          <span class="hint">This week</span>
+        </div>
+        <div class="highlights">
+          <div class="hl">
+            <div class="ic">&#128640;</div>
+            <div class="tx"><b>Contoso</b> moved to Commit &mdash; verbal approval received, paperwork in legal.</div>
+          </div>
+          <div class="hl">
+            <div class="ic">&#9888;&#65039;</div>
+            <div class="tx"><b>Tailwind Traders</b> flagged high-risk &mdash; budget owner changed, re-engage sponsor.</div>
+          </div>
+          <div class="hl">
+            <div class="ic">&#128200;</div>
+            <div class="tx"><b>9 net-new opps</b> added this week, $3.1M of fresh pipeline created.</div>
+          </div>
+          <div class="hl">
+            <div class="ic">&#127937;</div>
+            <div class="tx"><b>Proseware</b> closed won &mdash; first Security E5 land in public sector this quarter.</div>
+          </div>
+        </div>
+      </section>
+
+    </div>
+  </div>
+
+  <!-- ============================ FOOTER ============================ -->
+  <footer class="footer">
+    <div class="note">Confidential &middot; SME&amp;C Sales Scorecard &middot; Generated Jul 24, 2026</div>
+    <div class="cobrand">
+      <div class="ms-logo">
+        <span class="ms-grid"><i></i><i></i><i></i><i></i></span>
+        Microsoft
+      </div>
+      <span class="divider"></span>
+      <span class="smec">SME<span class="amp">&amp;</span>C</span>
+    </div>
+  </footer>
+
+</div>
+</body>
+</html>
